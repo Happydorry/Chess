@@ -20,3 +20,8 @@ pnpm-debug.log*
 .vscode/
 .idea/
 .DS_Store
+
+# Playwright (browser automation artifacts)
+.playwright-mcp/
+test-results/
+playwright-report/

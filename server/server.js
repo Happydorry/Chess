@@ -43,6 +43,10 @@ function registerSocketHandlers(io) {
         }
       }
     });
+    socket.on('make_move', ({ roomId, move }) => {
+      // Broadcast move to the other player in the room
+      socket.to(roomId).emit('move_made', { move });
+    });
   });
 }
 
