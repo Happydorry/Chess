@@ -54,7 +54,10 @@
   border-radius: 10px;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease;
+  transition:
+    transform 0.05s ease,
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .btn:active {
@@ -248,7 +251,38 @@
 }
 
 .board-wrap {
+  position: relative;
   width: min(90vw, 480px);
+}
+
+/* "Checkmate!" / "Stalemate!" banner flashed over the board before the result */
+.announcement-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 8px;
+  animation: fade-in 0.15s ease-out;
+}
+
+.announcement-text {
+  font-family: var(--heading);
+  font-size: clamp(32px, 9vw, 52px);
+  font-weight: 700;
+  letter-spacing: -1px;
+  color: #fff;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55);
+  animation: pop-in 0.25s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .game-actions {
