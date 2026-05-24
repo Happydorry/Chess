@@ -224,3 +224,109 @@
     transform: rotate(360deg);
   }
 }
+
+/* ===== Game screen ===== */
+.game {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.game-color {
+  font-size: 16px;
+  color: var(--text);
+}
+
+.game-color strong {
+  color: var(--text-h);
+  text-transform: capitalize;
+}
+
+.board-wrap {
+  width: min(90vw, 480px);
+}
+
+.game-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* Resign = danger variant of .btn */
+.btn-danger {
+  background: transparent;
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+.btn-danger:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
+/* ===== Game over card ===== */
+.game-over {
+  width: 100%;
+  max-width: 360px;
+  padding: 36px 32px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  animation: pop-in 0.18s ease-out;
+}
+
+.game-over-icon {
+  font-size: 52px;
+  line-height: 1;
+}
+
+.game-over-title {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: -0.5px;
+}
+
+.game-over-detail {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.game-over .btn-primary {
+  margin-top: 12px;
+}
+
+/* Result-specific accent on the title */
+.game-over[data-kind='win'] .game-over-title {
+  color: #16a34a;
+}
+.game-over[data-kind='loss'] .game-over-title {
+  color: #dc2626;
+}
+.game-over[data-kind='draw'] .game-over-title {
+  color: var(--accent);
+}
+.game-over[data-kind='neutral'] .game-over-title {
+  color: var(--text-h);
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

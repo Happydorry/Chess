@@ -11,7 +11,6 @@ export default function App() {
   const [initialFen, setInitialFen] = useState('start');
 
   useEffect(() => {
-    // Server re-seats us after a reload / reconnect / restart.
     const handleRejoined = ({ roomId, color, fen }) => {
       setRoomId(roomId);
       setMyColor(color);
@@ -23,7 +22,19 @@ export default function App() {
   }, []);
 
   if (gameStatus === 'started') {
-    return <Game roomId={roomId} myColor={myColor} initialFen={initialFen} />;
+    return (
+      <Game
+        roomId={roomId}
+        myColor={myColor}
+        initialFen={initialFen}
+        onLeave={() => {
+          setGameStatus('waiting');
+          setRoomId('');
+          setMyColor('');
+          setInitialFen('start');
+        }}
+      />
+    );
   }
 
   return (

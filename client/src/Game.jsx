@@ -3,15 +3,18 @@ import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { socket } from './socket';
 
-export default function Game({ roomId, myColor, initialFen = 'start' }) {
+const RESULT_ICON = { win: '🏆', loss: '🏳️', draw: '🤝', neutral: '⚠️' };
+
+export default function Game({ roomId, myColor, initialFen = 'start', onLeave }) {
   // One Chess instance for the life of the component (it mutates in place, so
-  // it must NOT live in useState). Seed it from the server's FEN on rejoin.
+  // it must NOT live in useState). Seed from the server's FEN on rejoin.
   const gameRef = useRef(null);
   if (gameRef.current === null) {
     gameRef.current =
       initialFen && initialFen !== 'start' ? new Chess(initialFen) : new Chess();
   }
   const [fen, setFen] = useState(gameRef.current.fen());
+  const [result, setResult] = useState(null); // { kind, title, detail } | null
 
   useEffect(() => {
     // Opponent moved — sync to the authoritative position the server sent.
@@ -23,30 +26,60 @@ export default function Game({ roomId, myColor, initialFen = 'start' }) {
           gameRef.current.move(move);
         }
         setFen(gameRef.current.fen());
+        checkGameOver();
       } catch (err) {
         console.error('Bad move/fen from opponent:', move, fen, err);
       }
     };
 
+    const handleResigned = () =>
+      setResult({ kind: 'win', title: 'You win!', detail: 'Opponent resigned' });
+    const handleAborted = () =>
+      setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
+
     socket.on('move_made', handleMoveMade);
-    return () => socket.off('move_made', handleMoveMade);
+    socket.on('opponent_resigned', handleResigned);
+    socket.on('opponent_aborted', handleAborted);
+
+    return () => {
+      socket.off('move_made', handleMoveMade);
+      socket.off('opponent_resigned', handleResigned);
+      socket.off('opponent_aborted', handleAborted);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function checkGameOver() {
+    const g = gameRef.current;
+    if (g.isCheckmate()) {
+      // The side to move is checkmated — so the other side won.
+      const winner = g.turn() === 'w' ? 'black' : 'white';
+      setResult(
+        winner === myColor
+          ? { kind: 'win', title: 'You win!', detail: 'by checkmate' }
+          : { kind: 'loss', title: 'You lose', detail: 'by checkmate' },
+      );
+    } else if (g.isStalemate()) {
+      setResult({ kind: 'draw', title: 'Draw', detail: 'by stalemate' });
+    } else if (g.isDraw()) {
+      setResult({ kind: 'draw', title: 'Draw', detail: null });
+    }
+  }
 
   // react-chessboard v5: onPieceDrop receives a single object and returns bool.
   function onPieceDrop({ sourceSquare, targetSquare }) {
+    if (result) return false; // game already over
     if (!targetSquare) return false; // dropped off the board
 
     const game = gameRef.current;
-
-    // Only let the player move on their own turn.
-    if (game.turn() !== myColor[0]) return false; // 'w' or 'b'
+    if (game.turn() !== myColor[0]) return false; // only on your turn
 
     let move;
     try {
       move = game.move({
         from: sourceSquare,
         to: targetSquare,
-        promotion: 'q', // auto-promote to queen
+        promotion: 'q',
       });
     } catch {
       return false; // chess.js v1 throws on an illegal move
@@ -57,20 +90,62 @@ export default function Game({ roomId, myColor, initialFen = 'start' }) {
     const newFen = game.fen();
     setFen(newFen);
     socket.emit('make_move', { roomId, move, fen: newFen });
+    checkGameOver();
     return true;
   }
 
+  function handleResign() {
+    socket.emit('resign', { roomId });
+    setResult({ kind: 'loss', title: 'You resigned', detail: null });
+  }
+
+  function handleAbort() {
+    socket.emit('abort', { roomId });
+    setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
+  }
+
+  if (result) {
+    return (
+      <div className="game">
+        <div className="game-over" data-kind={result.kind}>
+          <div className="game-over-icon" aria-hidden="true">
+            {RESULT_ICON[result.kind]}
+          </div>
+          <h2 className="game-over-title">{result.title}</h2>
+          {result.detail && <p className="game-over-detail">{result.detail}</p>}
+          <button className="btn btn-primary" onClick={onLeave}>
+            Back to Lobby
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ width: '500px', margin: '0 auto' }}>
-      <p>You are: {myColor}</p>
-      <Chessboard
-        options={{
-          id: 'main-board',
-          position: fen,
-          onPieceDrop,
-          boardOrientation: myColor === 'white' ? 'white' : 'black',
-        }}
-      />
+    <div className="game">
+      <p className="game-color">
+        You are <strong>{myColor}</strong>
+      </p>
+
+      <div className="board-wrap">
+        <Chessboard
+          options={{
+            id: 'main-board',
+            position: fen,
+            onPieceDrop,
+            boardOrientation: myColor === 'white' ? 'white' : 'black',
+          }}
+        />
+      </div>
+
+      <div className="game-actions">
+        <button className="btn btn-ghost" onClick={handleAbort}>
+          Abort
+        </button>
+        <button className="btn btn-danger" onClick={handleResign}>
+          Resign
+        </button>
+      </div>
     </div>
   );
 }
