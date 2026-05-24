@@ -26,3 +26,11 @@ Planned:
   `opponent_left` event in `server/server.js`.
 - For persistence across server restarts, the in-memory `rooms` store would need
   to move to something durable (e.g. Redis or a DB).
+
+  /////////////////////////////////
+
+  -timer
+  - css oerall
+  - player accoutns/ authentication
+    -rewatch the game after
+  - scores

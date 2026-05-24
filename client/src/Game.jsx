@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { socket } from './socket';
 
 const RESULT_ICON = { win: '🏆', loss: '🏳️', draw: '🤝', neutral: '⚠️' };
+const RESULT_DELAY_MS = 4000; // how long the "Checkmate!" banner shows first
 
 export default function Game({ roomId, myColor, initialFen = 'start', onLeave }) {
   // One Chess instance for the life of the component (it mutates in place, so
@@ -14,7 +15,22 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
       initialFen && initialFen !== 'start' ? new Chess(initialFen) : new Chess();
   }
   const [fen, setFen] = useState(gameRef.current.fen());
-  const [result, setResult] = useState(null); // { kind, title, detail } | null
+  const [announcement, setAnnouncement] = useState(null); // transient banner text
+  const [result, setResult] = useState(null); // final card { kind, title, detail }
+  const endTimer = useRef(null);
+
+  // Clear any pending result timer if we unmount (e.g. Back to Lobby).
+  useEffect(() => () => clearTimeout(endTimer.current), []);
+
+  // End the game: optionally flash a banner first, then show the result card.
+  function endGame(res, banner) {
+    if (banner) {
+      setAnnouncement(banner);
+      endTimer.current = setTimeout(() => setResult(res), RESULT_DELAY_MS);
+    } else {
+      setResult(res);
+    }
+  }
 
   useEffect(() => {
     // Opponent moved — sync to the authoritative position the server sent.
@@ -54,21 +70,22 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
     if (g.isCheckmate()) {
       // The side to move is checkmated — so the other side won.
       const winner = g.turn() === 'w' ? 'black' : 'white';
-      setResult(
+      endGame(
         winner === myColor
           ? { kind: 'win', title: 'You win!', detail: 'by checkmate' }
           : { kind: 'loss', title: 'You lose', detail: 'by checkmate' },
+        'Checkmate!',
       );
     } else if (g.isStalemate()) {
-      setResult({ kind: 'draw', title: 'Draw', detail: 'by stalemate' });
+      endGame({ kind: 'draw', title: 'Draw', detail: 'by stalemate' }, 'Stalemate!');
     } else if (g.isDraw()) {
-      setResult({ kind: 'draw', title: 'Draw', detail: null });
+      endGame({ kind: 'draw', title: 'Draw', detail: null });
     }
   }
 
   // react-chessboard v5: onPieceDrop receives a single object and returns bool.
   function onPieceDrop({ sourceSquare, targetSquare }) {
-    if (result) return false; // game already over
+    if (result || announcement) return false; // game over / ending
     if (!targetSquare) return false; // dropped off the board
 
     const game = gameRef.current;
@@ -136,16 +153,23 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
             boardOrientation: myColor === 'white' ? 'white' : 'black',
           }}
         />
+        {announcement && (
+          <div className="announcement-overlay">
+            <span className="announcement-text">{announcement}</span>
+          </div>
+        )}
       </div>
 
-      <div className="game-actions">
-        <button className="btn btn-ghost" onClick={handleAbort}>
-          Abort
-        </button>
-        <button className="btn btn-danger" onClick={handleResign}>
-          Resign
-        </button>
-      </div>
+      {!announcement && (
+        <div className="game-actions">
+          <button className="btn btn-ghost" onClick={handleAbort}>
+            Abort
+          </button>
+          <button className="btn btn-danger" onClick={handleResign}>
+            Resign
+          </button>
+        </div>
+      )}
     </div>
   );
 }
