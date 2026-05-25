@@ -255,6 +255,78 @@
   width: min(90vw, 480px);
 }
 
+/* ===== Chess clocks ===== */
+.clock {
+  width: min(90vw, 480px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+  opacity: 0.6; /* idle side is dimmed; the running side lights up */
+}
+
+/* The side whose turn it is — so each player sees when it's their move. */
+.clock[data-active='true'] {
+  opacity: 1;
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.clock-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-h);
+}
+
+.clock-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.clock-dot[data-color='white'] {
+  background: #fff;
+  border-color: #d6d5d9;
+}
+
+.clock-dot[data-color='black'] {
+  background: #08060d;
+  border-color: #08060d;
+}
+
+.clock-time {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+  color: var(--text-h);
+}
+
+/* Time pressure */
+.clock[data-low='true'] .clock-time {
+  color: #dc2626;
+}
+.clock[data-active='true'][data-low='true'] {
+  border-color: rgba(220, 38, 38, 0.5);
+  background: rgba(220, 38, 38, 0.08);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08);
+}
+
 /* "Checkmate!" / "Stalemate!" banner flashed over the board before the result */
 .announcement-overlay {
   position: absolute;

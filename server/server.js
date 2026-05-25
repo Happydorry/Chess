@@ -1,8 +1,14 @@
 const { v4: uuidv4 } = require('uuid');
 
-const rooms = {}; // roomId -> { white, black, fen }  (white/black = { playerId, socketId } | null)
+const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { playerId, socketId } | null)
 const cleanupTimers = {}; // playerId -> timeout
+const flagTimers = {}; // roomId -> timeout that fires when the running clock hits zero
 const GRACE_MS = Number(process.env.GRACE_MS) || 30_000; // keep a room alive this long after a player drops
+
+// Time control. Deadline-based: we store each side's remaining ms plus when the
+// running side's turn started, and derive live time on demand (no per-second tick).
+const INITIAL_TIME_MS = Number(process.env.CLOCK_MS) || 5 * 60_000;
+const INCREMENT_MS = Number(process.env.INCREMENT_MS) || 0;
 
 const seatOf = (room, playerId) =>
   room?.white?.playerId === playerId
@@ -13,6 +19,52 @@ const seatOf = (room, playerId) =>
 
 const roomIdOfPlayer = (playerId) =>
   Object.keys(rooms).find((id) => seatOf(rooms[id], playerId)) ?? null;
+
+// Live clock values: subtract the time elapsed on the running side's turn.
+function clockSnapshot(room) {
+  const c = room?.clock;
+  if (!c) return null;
+  const elapsed = c.turn ? Date.now() - c.turnStartedAt : 0;
+  return {
+    white: c.turn === 'white' ? Math.max(0, c.white - elapsed) : c.white,
+    black: c.turn === 'black' ? Math.max(0, c.black - elapsed) : c.black,
+    turn: c.turn,
+  };
+}
+
+// Arm a single timeout for the exact moment the running side flags. Re-armed on
+// every move; cleared when the game ends or the room goes away.
+function scheduleFlagFall(io, roomId) {
+  clearTimeout(flagTimers[roomId]);
+  const room = rooms[roomId];
+  const c = room?.clock;
+  if (!c?.turn) return;
+  const remaining = c[c.turn] - (Date.now() - c.turnStartedAt);
+  flagTimers[roomId] = setTimeout(
+    () => {
+      const room = rooms[roomId];
+      if (!room?.clock?.turn) return;
+      const loser = room.clock.turn;
+      const winner = loser === 'white' ? 'black' : 'white';
+      room.clock[loser] = 0;
+      room.clock.turn = null; // stop the clock
+      io.to(roomId).emit('time_up', {
+        loser,
+        winner,
+        clock: clockSnapshot(room),
+      });
+      stopClock(roomId);
+    },
+    Math.max(0, remaining),
+  );
+}
+
+// Freeze the clock and cancel its flag timer (game over / resign / abort).
+function stopClock(roomId) {
+  clearTimeout(flagTimers[roomId]);
+  delete flagTimers[roomId];
+  if (rooms[roomId]?.clock) rooms[roomId].clock.turn = null;
+}
 
 function registerSocketHandlers(io) {
   io.on('connection', (socket) => {
@@ -34,6 +86,7 @@ function registerSocketHandlers(io) {
         roomId: existingRoomId,
         color: seat,
         fen: room.fen,
+        clock: clockSnapshot(room),
       });
       // Tell the opponent we're back.
       socket.to(existingRoomId).emit('opponent_joined');
@@ -46,6 +99,7 @@ function registerSocketHandlers(io) {
         white: { playerId, socketId: socket.id },
         black: null,
         fen: 'start', // initial board state
+        clock: null, // set when the second player joins and the game starts
       };
       socket.join(roomId);
       socket.emit('room_created', { roomId, color: 'white' });
@@ -66,26 +120,63 @@ function registerSocketHandlers(io) {
         room[existingSeat].socketId = socket.id; // same player reconnecting
       } else {
         room.black = { playerId, socketId: socket.id };
+        // Brand-new opponent → the game starts now. Start white's clock.
+        room.clock = {
+          white: INITIAL_TIME_MS,
+          black: INITIAL_TIME_MS,
+          increment: INCREMENT_MS,
+          turn: 'white',
+          turnStartedAt: Date.now(),
+        };
+        scheduleFlagFall(io, roomId);
       }
 
+      const clock = clockSnapshot(room);
       socket.join(roomId);
-      socket.emit('room_joined', { roomId, color: existingSeat || 'black' });
+      socket.emit('room_joined', {
+        roomId,
+        color: existingSeat || 'black',
+        clock,
+      });
 
       // Notify white player that opponent joined — game can start.
-      io.to(room.white.socketId).emit('opponent_joined');
+      io.to(room.white.socketId).emit('opponent_joined', { clock });
     });
     socket.on('resign', ({ roomId }) => {
+      stopClock(roomId);
       socket.to(roomId).emit('opponent_resigned');
     });
 
     socket.on('abort', ({ roomId }) => {
+      stopClock(roomId);
       socket.to(roomId).emit('opponent_aborted');
     });
-    // MAKE MOVE — broadcast to the other player; keep the authoritative FEN.
+
+    // Game reached a natural end (checkmate / stalemate / draw) — stop the clock
+    // so its flag timer can't fire a spurious time-out afterwards.
+    socket.on('game_ended', ({ roomId }) => {
+      stopClock(roomId);
+    });
+
+    // MAKE MOVE — broadcast to the other player; keep the authoritative FEN and
+    // charge the mover's clock, then start the opponent's.
     socket.on('make_move', ({ roomId, move, fen }) => {
       const room = rooms[roomId];
-      if (room && fen) room.fen = fen;
+      if (!room) return;
+      if (fen) room.fen = fen;
+
+      const c = room.clock;
+      if (c?.turn) {
+        const mover = c.turn; // the running side is the one who just moved
+        c[mover] =
+          Math.max(0, c[mover] - (Date.now() - c.turnStartedAt)) + c.increment;
+        c.turn = mover === 'white' ? 'black' : 'white';
+        c.turnStartedAt = Date.now();
+        scheduleFlagFall(io, roomId);
+      }
+
       socket.to(roomId).emit('move_made', { move, fen });
+      io.to(roomId).emit('clock_update', clockSnapshot(room));
     });
 
     // DISCONNECT — don't destroy the game immediately; allow a grace period
@@ -110,7 +201,11 @@ function registerSocketHandlers(io) {
         if (room) {
           const seat = seatOf(room, playerId);
           if (seat) room[seat] = null;
-          if (!room.white && !room.black) delete rooms[roomId];
+          if (!room.white && !room.black) {
+            clearTimeout(flagTimers[roomId]);
+            delete flagTimers[roomId];
+            delete rooms[roomId];
+          }
         }
         delete cleanupTimers[playerId];
       }, GRACE_MS);
