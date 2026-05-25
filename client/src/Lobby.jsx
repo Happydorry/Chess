@@ -1,10 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket } from './socket';
 
+// Game-length presets the room creator can choose from.
+const TIME_PRESETS = [
+  { label: '1 min', sub: 'Bullet', timeMs: 60_000, incrementMs: 0 },
+  { label: '3 min', sub: 'Blitz', timeMs: 180_000, incrementMs: 0 },
+  { label: '5 min', sub: 'Blitz', timeMs: 300_000, incrementMs: 0 },
+  { label: '10 min', sub: 'Rapid', timeMs: 600_000, incrementMs: 0 },
+];
+const DEFAULT_PRESET = 2; // 5 min
+
 export default function Lobby({ onGameStart }) {
   const [roomId, setRoomId] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [myColor, setMyColor] = useState(null);
+  const [presetIndex, setPresetIndex] = useState(DEFAULT_PRESET);
 
   // Holds the latest room info so socket callbacks never read stale state.
   const roomInfo = useRef({ roomId: '', color: null });
@@ -44,7 +54,8 @@ export default function Lobby({ onGameStart }) {
 
   // ✅ Emits go inside button handlers, not loose in the component.
   const handleCreateRoom = () => {
-    socket.emit('create_room');
+    const { timeMs, incrementMs } = TIME_PRESETS[presetIndex];
+    socket.emit('create_room', { timeMs, incrementMs });
   };
 
   const handleJoinRoom = () => {
@@ -67,6 +78,24 @@ export default function Lobby({ onGameStart }) {
 
         {!inRoom && (
           <>
+            <div className="time-control">
+              <div className="time-control-label">Game length</div>
+              <div className="time-options">
+                {TIME_PRESETS.map((preset, i) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className="time-option"
+                    data-selected={i === presetIndex}
+                    onClick={() => setPresetIndex(i)}
+                  >
+                    <span className="time-option-main">{preset.label}</span>
+                    <span className="time-option-sub">{preset.sub}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <button className="btn btn-primary" onClick={handleCreateRoom}>
               Create Room
             </button>
@@ -98,6 +127,10 @@ export default function Lobby({ onGameStart }) {
 
             <div className="color-badge" data-color={myColor}>
               You play <strong>{myColor}</strong>
+            </div>
+
+            <div className="color-badge">
+              {TIME_PRESETS[presetIndex].label} · {TIME_PRESETS[presetIndex].sub}
             </div>
 
             <div className="banner banner-waiting">
