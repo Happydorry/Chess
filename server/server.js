@@ -7,8 +7,27 @@ const GRACE_MS = Number(process.env.GRACE_MS) || 30_000; // keep a room alive th
 
 // Time control. Deadline-based: we store each side's remaining ms plus when the
 // running side's turn started, and derive live time on demand (no per-second tick).
-const INITIAL_TIME_MS = Number(process.env.CLOCK_MS) || 5 * 60_000;
-const INCREMENT_MS = Number(process.env.INCREMENT_MS) || 0;
+const INITIAL_TIME_MS = Number(process.env.CLOCK_MS) || 5 * 60_000; // default 5 min/side
+const INCREMENT_MS = Number(process.env.INCREMENT_MS) || 0; // default no increment
+const MIN_TIME_MS = 10_000; // 10s
+const MAX_TIME_MS = 60 * 60_000; // 60 min
+const MAX_INCREMENT_MS = 60_000; // 60s
+
+const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
+
+// The room creator picks the time control; never trust the client's numbers.
+function sanitizeTimeControl(tc) {
+  const initialMs = Number(tc?.timeMs);
+  const incrementMs = Number(tc?.incrementMs);
+  return {
+    initialMs: Number.isFinite(initialMs)
+      ? clamp(initialMs, MIN_TIME_MS, MAX_TIME_MS)
+      : INITIAL_TIME_MS,
+    incrementMs: Number.isFinite(incrementMs)
+      ? clamp(incrementMs, 0, MAX_INCREMENT_MS)
+      : INCREMENT_MS,
+  };
+}
 
 const seatOf = (room, playerId) =>
   room?.white?.playerId === playerId
@@ -93,16 +112,18 @@ function registerSocketHandlers(io) {
     }
 
     // CREATE ROOM
-    socket.on('create_room', () => {
+    socket.on('create_room', (payload) => {
       const roomId = uuidv4().slice(0, 6).toUpperCase(); // e.g. "A3F9B2"
+      const timeControl = sanitizeTimeControl(payload);
       rooms[roomId] = {
         white: { playerId, socketId: socket.id },
         black: null,
         fen: 'start', // initial board state
+        timeControl, // chosen by the creator; applied when the game starts
         clock: null, // set when the second player joins and the game starts
       };
       socket.join(roomId);
-      socket.emit('room_created', { roomId, color: 'white' });
+      socket.emit('room_created', { roomId, color: 'white', timeControl });
     });
 
     // JOIN ROOM
@@ -120,11 +141,13 @@ function registerSocketHandlers(io) {
         room[existingSeat].socketId = socket.id; // same player reconnecting
       } else {
         room.black = { playerId, socketId: socket.id };
-        // Brand-new opponent → the game starts now. Start white's clock.
+        // Brand-new opponent → the game starts now. Start white's clock using
+        // the creator's chosen time control.
+        const tc = room.timeControl ?? sanitizeTimeControl();
         room.clock = {
-          white: INITIAL_TIME_MS,
-          black: INITIAL_TIME_MS,
-          increment: INCREMENT_MS,
+          white: tc.initialMs,
+          black: tc.initialMs,
+          increment: tc.incrementMs,
           turn: 'white',
           turnStartedAt: Date.now(),
         };
