@@ -16,18 +16,18 @@ export default function Lobby({ onGameStart }) {
       setMyColor(color);
     };
 
-    const handleRoomJoined = ({ roomId, color }) => {
+    const handleRoomJoined = ({ roomId, color, clock }) => {
       roomInfo.current = { roomId, color };
       setRoomId(roomId);
       setMyColor(color);
       // Black just filled the room — the game can start right away.
-      onGameStart(roomId, color);
+      onGameStart(roomId, color, clock);
     };
 
-    const handleOpponentJoined = () => {
+    const handleOpponentJoined = ({ clock } = {}) => {
       // White's opponent arrived — start with the stored room info.
       const { roomId, color } = roomInfo.current;
-      onGameStart(roomId, color);
+      onGameStart(roomId, color, clock);
     };
 
     socket.on('room_created', handleRoomCreated);

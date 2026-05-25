@@ -34,3 +34,4 @@ Planned:
   - player accoutns/ authentication
     -rewatch the game after
   - scores
+    -how does the other player get the code when once creates a room?? is the setup normal right now?

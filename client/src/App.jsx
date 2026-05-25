@@ -9,12 +9,14 @@ export default function App() {
   const [roomId, setRoomId] = useState('');
   const [myColor, setMyColor] = useState('');
   const [initialFen, setInitialFen] = useState('start');
+  const [initialClock, setInitialClock] = useState(null);
 
   useEffect(() => {
-    const handleRejoined = ({ roomId, color, fen }) => {
+    const handleRejoined = ({ roomId, color, fen, clock }) => {
       setRoomId(roomId);
       setMyColor(color);
       setInitialFen(fen || 'start');
+      setInitialClock(clock || null);
       setGameStatus('started');
     };
     socket.on('rejoined', handleRejoined);
@@ -27,11 +29,13 @@ export default function App() {
         roomId={roomId}
         myColor={myColor}
         initialFen={initialFen}
+        initialClock={initialClock}
         onLeave={() => {
           setGameStatus('waiting');
           setRoomId('');
           setMyColor('');
           setInitialFen('start');
+          setInitialClock(null);
         }}
       />
     );
@@ -39,9 +43,10 @@ export default function App() {
 
   return (
     <Lobby
-      onGameStart={(roomId, color) => {
+      onGameStart={(roomId, color, clock) => {
         setRoomId(roomId);
         setMyColor(color);
+        setInitialClock(clock || null);
         setGameStatus('started');
       }}
     />

@@ -5,8 +5,23 @@ import { socket } from './socket';
 
 const RESULT_ICON = { win: '🏆', loss: '🏳️', draw: '🤝', neutral: '⚠️' };
 const RESULT_DELAY_MS = 4000; // how long the "Checkmate!" banner shows first
+const LOW_TIME_MS = 20_000; // turn the clock red below this
 
-export default function Game({ roomId, myColor, initialFen = 'start', onLeave }) {
+// mm:ss, but show tenths under 10s for the final scramble.
+function formatClock(ms) {
+  if (ms == null) return '–:––';
+  if (ms < 10_000) return (ms / 1000).toFixed(1);
+  const s = Math.ceil(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+export default function Game({
+  roomId,
+  myColor,
+  initialFen = 'start',
+  initialClock = null,
+  onLeave,
+}) {
   // One Chess instance for the life of the component (it mutates in place, so
   // it must NOT live in useState). Seed from the server's FEN on rejoin.
   const gameRef = useRef(null);
@@ -19,8 +34,33 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
   const [result, setResult] = useState(null); // final card { kind, title, detail }
   const endTimer = useRef(null);
 
+  // Authoritative clock from the server: { white, black, turn, syncedAt }.
+  // We tick down locally from syncedAt for a smooth display, but every server
+  // message resnaps us to the truth.
+  const [clock, setClock] = useState(() =>
+    initialClock ? { ...initialClock, syncedAt: Date.now() } : null,
+  );
+  const frozen = Boolean(result || announcement); // stop ticking once the game ends
+
   // Clear any pending result timer if we unmount (e.g. Back to Lobby).
   useEffect(() => () => clearTimeout(endTimer.current), []);
+
+  // Re-render a few times a second while a clock is running so it counts down.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!clock?.turn || frozen) return;
+    const id = setInterval(() => forceTick((t) => t + 1), 100);
+    return () => clearInterval(id);
+  }, [clock?.turn, frozen]);
+
+  // Live remaining ms for a side: subtract elapsed if it's their turn.
+  const liveMs = (side) => {
+    if (!clock) return null;
+    if (clock.turn === side && !frozen) {
+      return Math.max(0, clock[side] - (Date.now() - clock.syncedAt));
+    }
+    return clock[side];
+  };
 
   // End the game: optionally flash a banner first, then show the result card.
   function endGame(res, banner) {
@@ -53,20 +93,38 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
     const handleAborted = () =>
       setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
 
+    const handleClockUpdate = (c) =>
+      setClock(c ? { ...c, syncedAt: Date.now() } : null);
+
+    const handleTimeUp = ({ winner, clock: c }) => {
+      if (c) setClock({ ...c, syncedAt: Date.now() });
+      endGame(
+        winner === myColor
+          ? { kind: 'win', title: 'You win!', detail: 'opponent ran out of time' }
+          : { kind: 'loss', title: 'You lose', detail: 'on time' },
+        'Time!',
+      );
+    };
+
     socket.on('move_made', handleMoveMade);
     socket.on('opponent_resigned', handleResigned);
     socket.on('opponent_aborted', handleAborted);
+    socket.on('clock_update', handleClockUpdate);
+    socket.on('time_up', handleTimeUp);
 
     return () => {
       socket.off('move_made', handleMoveMade);
       socket.off('opponent_resigned', handleResigned);
       socket.off('opponent_aborted', handleAborted);
+      socket.off('clock_update', handleClockUpdate);
+      socket.off('time_up', handleTimeUp);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function checkGameOver() {
     const g = gameRef.current;
+    if (g.isGameOver()) socket.emit('game_ended', { roomId }); // stop the clock
     if (g.isCheckmate()) {
       // The side to move is checkmated — so the other side won.
       const winner = g.turn() === 'w' ? 'black' : 'white';
@@ -138,11 +196,29 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
     );
   }
 
+  const opponentColor = myColor === 'white' ? 'black' : 'white';
+
+  const renderClock = (color, who) => {
+    const ms = liveMs(color);
+    const active = clock?.turn === color && !frozen;
+    return (
+      <div
+        className="clock"
+        data-active={active}
+        data-low={ms != null && ms <= LOW_TIME_MS}
+      >
+        <span className="clock-who">
+          {who}
+          <span className="clock-dot" data-color={color} />
+        </span>
+        <span className="clock-time">{formatClock(ms)}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="game">
-      <p className="game-color">
-        You are <strong>{myColor}</strong>
-      </p>
+      {clock && renderClock(opponentColor, 'Opponent')}
 
       <div className="board-wrap">
         <Chessboard
@@ -159,6 +235,8 @@ export default function Game({ roomId, myColor, initialFen = 'start', onLeave })
           </div>
         )}
       </div>
+
+      {clock && renderClock(myColor, 'You')}
 
       {!announcement && (
         <div className="game-actions">
