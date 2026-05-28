@@ -28,10 +28,9 @@ Planned:
   to move to something durable (e.g. Redis or a DB).
 
   /////////////////////////////////
-
-  -timer
   - css oerall
   - player accoutns/ authentication
     -rewatch the game after
+    - apponent matching
   - scores
     -how does the other player get the code when once creates a room?? is the setup normal right now?
