@@ -15,6 +15,9 @@ export default function Lobby({ onGameStart }) {
   const [inputValue, setInputValue] = useState('');
   const [myColor, setMyColor] = useState(null);
   const [presetIndex, setPresetIndex] = useState(DEFAULT_PRESET);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [copied, setCopied] = useState(null); // 'link' | 'code' | null
+  const copyTimer = useRef(null);
 
   // Holds the latest room info so socket callbacks never read stale state.
   const roomInfo = useRef({ roomId: '', color: null });
@@ -40,27 +43,71 @@ export default function Lobby({ onGameStart }) {
       onGameStart(roomId, color, clock);
     };
 
+    const handleError = ({ msg }) => setErrorMsg(msg || 'Something went wrong');
+
     socket.on('room_created', handleRoomCreated);
     socket.on('room_joined', handleRoomJoined);
     socket.on('opponent_joined', handleOpponentJoined);
+    socket.on('error', handleError);
 
     // Cleanup: a useEffect must return a function (or nothing).
     return () => {
       socket.off('room_created', handleRoomCreated);
       socket.off('room_joined', handleRoomJoined);
       socket.off('opponent_joined', handleOpponentJoined);
+      socket.off('error', handleError);
     };
   }, [onGameStart]);
 
+  // If the page was opened via an invite link (?join=ABCDEF), auto-join the
+  // room and strip the query so a refresh doesn't loop. Runs once on mount.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('join');
+    if (code) {
+      socket.emit('join_room', { roomId: code.trim().toUpperCase() });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    return () => clearTimeout(copyTimer.current);
+  }, []);
+
   // ✅ Emits go inside button handlers, not loose in the component.
   const handleCreateRoom = () => {
+    setErrorMsg(null);
     const { timeMs, incrementMs } = TIME_PRESETS[presetIndex];
     socket.emit('create_room', { timeMs, incrementMs });
   };
 
   const handleJoinRoom = () => {
     if (!inputValue.trim()) return;
+    setErrorMsg(null);
     socket.emit('join_room', { roomId: inputValue.trim().toUpperCase() });
+  };
+
+  // Clipboard helpers — show a transient "Copied!" state on the button.
+  const flashCopied = (kind) => {
+    setCopied(kind);
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(null), 2000);
+  };
+
+  const handleCopyLink = async () => {
+    const url = `${window.location.origin}/?join=${roomId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      flashCopied('link');
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+  };
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(roomId);
+      flashCopied('code');
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
   };
 
   const inRoom = Boolean(roomId);
@@ -75,6 +122,8 @@ export default function Lobby({ onGameStart }) {
         <p className="lobby-subtitle">
           Create a room or join with a code to play.
         </p>
+
+        {errorMsg && <div className="banner banner-error">{errorMsg}</div>}
 
         {!inRoom && (
           <>
@@ -124,6 +173,23 @@ export default function Lobby({ onGameStart }) {
           <div className="room-status">
             <div className="room-code-label">Room code</div>
             <div className="room-code">{roomId}</div>
+
+            <div className="share-row">
+              <button
+                className="btn btn-share"
+                data-copied={copied === 'link'}
+                onClick={handleCopyLink}
+              >
+                {copied === 'link' ? '✓ Link copied' : 'Copy invite link'}
+              </button>
+              <button
+                className="btn btn-share-ghost"
+                data-copied={copied === 'code'}
+                onClick={handleCopyCode}
+              >
+                {copied === 'code' ? '✓ Code copied' : 'Copy code'}
+              </button>
+            </div>
 
             <div className="color-badge" data-color={myColor}>
               You play <strong>{myColor}</strong>
