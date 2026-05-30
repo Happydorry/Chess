@@ -72,17 +72,21 @@ function scheduleFlagFall(io, roomId) {
         winner,
         clock: clockSnapshot(room),
       });
-      stopClock(roomId);
+      endGame(roomId);
     },
     Math.max(0, remaining),
   );
 }
 
-// Freeze the clock and cancel its flag timer (game over / resign / abort).
-function stopClock(roomId) {
+// Mark the game as over: freeze the clock, cancel its flag timer, and flag the
+// room so reconnects don't drag the player back into a finished match.
+function endGame(roomId) {
   clearTimeout(flagTimers[roomId]);
   delete flagTimers[roomId];
-  if (rooms[roomId]?.clock) rooms[roomId].clock.turn = null;
+  const room = rooms[roomId];
+  if (!room) return;
+  if (room.clock) room.clock.turn = null;
+  room.over = true;
 }
 
 function registerSocketHandlers(io) {
@@ -98,17 +102,30 @@ function registerSocketHandlers(io) {
     const existingRoomId = roomIdOfPlayer(playerId);
     if (existingRoomId) {
       const room = rooms[existingRoomId];
-      const seat = seatOf(room, playerId);
-      room[seat].socketId = socket.id;
-      socket.join(existingRoomId);
-      socket.emit('rejoined', {
-        roomId: existingRoomId,
-        color: seat,
-        fen: room.fen,
-        clock: clockSnapshot(room),
-      });
-      // Tell the opponent we're back.
-      socket.to(existingRoomId).emit('opponent_joined');
+      if (room.over) {
+        // The game already ended (abort / resign / time-out / checkmate).
+        // Don't drag the player back in on refresh — drop their seat and let
+        // them land in the lobby. Delete the room if both players are now gone.
+        const seat = seatOf(room, playerId);
+        if (seat) room[seat] = null;
+        if (!room.white && !room.black) {
+          clearTimeout(flagTimers[existingRoomId]);
+          delete flagTimers[existingRoomId];
+          delete rooms[existingRoomId];
+        }
+      } else {
+        const seat = seatOf(room, playerId);
+        room[seat].socketId = socket.id;
+        socket.join(existingRoomId);
+        socket.emit('rejoined', {
+          roomId: existingRoomId,
+          color: seat,
+          fen: room.fen,
+          clock: clockSnapshot(room),
+        });
+        // Tell the opponent we're back.
+        socket.to(existingRoomId).emit('opponent_joined');
+      }
     }
 
     // CREATE ROOM
@@ -166,19 +183,19 @@ function registerSocketHandlers(io) {
       io.to(room.white.socketId).emit('opponent_joined', { clock });
     });
     socket.on('resign', ({ roomId }) => {
-      stopClock(roomId);
+      endGame(roomId);
       socket.to(roomId).emit('opponent_resigned');
     });
 
     socket.on('abort', ({ roomId }) => {
-      stopClock(roomId);
+      endGame(roomId);
       socket.to(roomId).emit('opponent_aborted');
     });
 
     // Game reached a natural end (checkmate / stalemate / draw) — stop the clock
     // so its flag timer can't fire a spurious time-out afterwards.
     socket.on('game_ended', ({ roomId }) => {
-      stopClock(roomId);
+      endGame(roomId);
     });
 
     // MAKE MOVE — broadcast to the other player; keep the authoritative FEN and

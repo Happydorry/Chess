@@ -33,4 +33,3 @@ Planned:
     -rewatch the game after
     - apponent matching
   - scores
-    -how does the other player get the code when once creates a room?? is the setup normal right now?
