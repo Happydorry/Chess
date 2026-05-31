@@ -594,6 +594,76 @@
   margin-top: 12px;
 }
 
+/* Stacked actions on the result card (Review game + Back to Lobby). */
+.game-over-actions {
+  width: 100%;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-over-actions .btn {
+  width: 100%;
+  margin-top: 0;
+}
+
+/* ===== Game review (replay) ===== */
+.review-header {
+  width: min(90vw, 480px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.review-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+
+.review-counter {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-nav {
+  width: min(90vw, 480px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.review-footer {
+  width: min(90vw, 480px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Compact square button for ⏮ ◀ ▶ ⏭ */
+.btn-icon {
+  width: 56px;
+  padding: 10px 0;
+  font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
 /* Result-specific accent on the title */
 .game-over[data-kind='win'] .game-over-title {
   color: #16a34a;

@@ -34,6 +34,16 @@ export default function Game({
   const [result, setResult] = useState(null); // final card { kind, title, detail }
   const endTimer = useRef(null);
 
+  // Move log for in-game replay. Each entry is { fen, san }; the first entry is
+  // the starting position (san: null). Recorded on both sides as moves happen.
+  // Caveat: a player who rejoins mid-game only has the moves played from that
+  // point onward — full-game history would need server-side persistence.
+  const [moveLog, setMoveLog] = useState(() => [
+    { fen: gameRef.current.fen(), san: null },
+  ]);
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewIndex, setReviewIndex] = useState(0);
+
   // Authoritative clock from the server: { white, black, turn, syncedAt }.
   // We tick down locally from syncedAt for a smooth display, but every server
   // message resnaps us to the truth.
@@ -44,6 +54,22 @@ export default function Game({
 
   // Clear any pending result timer if we unmount (e.g. Back to Lobby).
   useEffect(() => () => clearTimeout(endTimer.current), []);
+
+  // Arrow keys (and Home/End) step through the replay when reviewing.
+  useEffect(() => {
+    if (!reviewing) return;
+    const last = moveLog.length - 1;
+    const handler = (e) => {
+      if (e.key === 'ArrowLeft')
+        setReviewIndex((i) => Math.max(0, i - 1));
+      else if (e.key === 'ArrowRight')
+        setReviewIndex((i) => Math.min(last, i + 1));
+      else if (e.key === 'Home') setReviewIndex(0);
+      else if (e.key === 'End') setReviewIndex(last);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [reviewing, moveLog.length]);
 
   // Re-render a few times a second while a clock is running so it counts down.
   const [, forceTick] = useState(0);
@@ -81,7 +107,9 @@ export default function Game({
         } else {
           gameRef.current.move(move);
         }
-        setFen(gameRef.current.fen());
+        const newFen = gameRef.current.fen();
+        setFen(newFen);
+        setMoveLog((log) => [...log, { fen: newFen, san: move?.san ?? '?' }]);
         checkGameOver();
       } catch (err) {
         console.error('Bad move/fen from opponent:', move, fen, err);
@@ -92,6 +120,19 @@ export default function Game({
       setResult({ kind: 'win', title: 'You win!', detail: 'Opponent resigned' });
     const handleAborted = () =>
       setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
+
+    // Server's 30s grace expired without the opponent reconnecting — forfeit.
+    const handleForfeit = ({ winner }) => {
+      setResult(
+        winner === myColor
+          ? {
+              kind: 'win',
+              title: 'You win!',
+              detail: 'opponent disconnected',
+            }
+          : { kind: 'loss', title: 'You lose', detail: 'disconnected' },
+      );
+    };
 
     const handleClockUpdate = (c) =>
       setClock(c ? { ...c, syncedAt: Date.now() } : null);
@@ -111,6 +152,7 @@ export default function Game({
     socket.on('opponent_aborted', handleAborted);
     socket.on('clock_update', handleClockUpdate);
     socket.on('time_up', handleTimeUp);
+    socket.on('opponent_forfeit', handleForfeit);
 
     return () => {
       socket.off('move_made', handleMoveMade);
@@ -118,6 +160,7 @@ export default function Game({
       socket.off('opponent_aborted', handleAborted);
       socket.off('clock_update', handleClockUpdate);
       socket.off('time_up', handleTimeUp);
+      socket.off('opponent_forfeit', handleForfeit);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -164,6 +207,7 @@ export default function Game({
 
     const newFen = game.fen();
     setFen(newFen);
+    setMoveLog((log) => [...log, { fen: newFen, san: move.san }]);
     socket.emit('make_move', { roomId, move, fen: newFen });
     checkGameOver();
     return true;
@@ -179,7 +223,87 @@ export default function Game({
     setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
   }
 
+  // Review mode: replay the just-finished game move-by-move.
+  if (result && reviewing) {
+    const lastIndex = moveLog.length - 1;
+    const current = moveLog[reviewIndex] ?? moveLog[0];
+    return (
+      <div className="game">
+        <div className="review-header">
+          <span className="review-title">Game review</span>
+          <span className="review-counter">
+            {reviewIndex === 0
+              ? 'Start position'
+              : `Move ${reviewIndex} of ${lastIndex} · ${current.san}`}
+          </span>
+        </div>
+
+        <div className="board-wrap">
+          <Chessboard
+            options={{
+              id: 'review-board',
+              position: current.fen,
+              onPieceDrop: () => false,
+              arePiecesDraggable: false,
+              boardOrientation: myColor === 'white' ? 'white' : 'black',
+            }}
+          />
+        </div>
+
+        <div className="review-nav">
+          <button
+            className="btn btn-ghost btn-icon"
+            onClick={() => setReviewIndex(0)}
+            disabled={reviewIndex === 0}
+            aria-label="First move"
+          >
+            ⏮
+          </button>
+          <button
+            className="btn btn-ghost btn-icon"
+            onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
+            disabled={reviewIndex === 0}
+            aria-label="Previous move"
+          >
+            ◀
+          </button>
+          <button
+            className="btn btn-ghost btn-icon"
+            onClick={() =>
+              setReviewIndex((i) => Math.min(lastIndex, i + 1))
+            }
+            disabled={reviewIndex === lastIndex}
+            aria-label="Next move"
+          >
+            ▶
+          </button>
+          <button
+            className="btn btn-ghost btn-icon"
+            onClick={() => setReviewIndex(lastIndex)}
+            disabled={reviewIndex === lastIndex}
+            aria-label="Last move"
+          >
+            ⏭
+          </button>
+        </div>
+
+        <div className="review-footer">
+          <button
+            className="btn btn-ghost"
+            onClick={() => setReviewing(false)}
+          >
+            Done
+          </button>
+          <button className="btn btn-primary" onClick={onLeave}>
+            Back to Lobby
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (result) {
+    const hasMoves = moveLog.length > 1;
     return (
       <div className="game">
         <div className="game-over" data-kind={result.kind}>
@@ -188,9 +312,22 @@ export default function Game({
           </div>
           <h2 className="game-over-title">{result.title}</h2>
           {result.detail && <p className="game-over-detail">{result.detail}</p>}
-          <button className="btn btn-primary" onClick={onLeave}>
-            Back to Lobby
-          </button>
+          <div className="game-over-actions">
+            {hasMoves && (
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setReviewIndex(moveLog.length - 1);
+                  setReviewing(true);
+                }}
+              >
+                Review game
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={onLeave}>
+              Back to Lobby
+            </button>
+          </div>
         </div>
       </div>
     );

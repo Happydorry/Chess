@@ -240,6 +240,21 @@ function registerSocketHandlers(io) {
         const room = rooms[roomId];
         if (room) {
           const seat = seatOf(room, playerId);
+
+          // If the game is still live and the opponent is still around, treat
+          // the disconnect as a forfeit — closing your tab no longer lets you
+          // escape a losing position.
+          if (seat && !room.over) {
+            const opponentSeat = seat === 'white' ? 'black' : 'white';
+            if (room[opponentSeat]) {
+              io.to(roomId).emit('opponent_forfeit', {
+                winner: opponentSeat,
+                loser: seat,
+              });
+              endGame(roomId);
+            }
+          }
+
           if (seat) room[seat] = null;
           if (!room.white && !room.black) {
             clearTimeout(flagTimers[roomId]);
