@@ -21,6 +21,10 @@ app.get('/', (req, res) => {
 
 registerSocketHandlers(io);
 
-server.listen(5001, () => {
-  console.log('Server running on port 5001');
+// Hosts (Render, Railway, Fly, etc.) inject the port to bind via PORT.
+// Fall back to 5001 for local development.
+const PORT = process.env.PORT || 5001;
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

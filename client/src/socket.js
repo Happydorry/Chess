@@ -13,6 +13,11 @@ if (!playerId) {
 
 export { playerId };
 
-export const socket = io('http://localhost:5001', {
+// Server URL is configurable so the same build works locally and in
+// production. Set VITE_SERVER_URL at build time (e.g. on the host) to the
+// deployed server's origin; falls back to the local dev server otherwise.
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:5001';
+
+export const socket = io(SERVER_URL, {
   auth: { playerId },
 });
