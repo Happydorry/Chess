@@ -117,14 +117,33 @@ function registerSocketHandlers(io) {
         const seat = seatOf(room, playerId);
         room[seat].socketId = socket.id;
         socket.join(existingRoomId);
-        socket.emit('rejoined', {
-          roomId: existingRoomId,
-          color: seat,
-          fen: room.fen,
-          clock: clockSnapshot(room),
-        });
-        // Tell the opponent we're back.
-        socket.to(existingRoomId).emit('opponent_joined');
+
+        // Has the game actually started (both seats filled)? If so, drop the
+        // player straight back into the live game. If they're still the lone
+        // creator waiting for an opponent, restore the *waiting* screen instead
+        // of throwing them onto an empty board. This also means a creator who
+        // briefly dropped while waiting will recover correctly when they
+        // reconnect — and will be told the game started via 'opponent_joined'
+        // once the second player arrives.
+        const started = Boolean(room.white && room.black);
+        if (started) {
+          socket.emit('rejoined', {
+            roomId: existingRoomId,
+            color: seat,
+            fen: room.fen,
+            clock: clockSnapshot(room),
+          });
+          // Tell the opponent we're back.
+          socket.to(existingRoomId).emit('opponent_joined');
+        } else {
+          // Still waiting for an opponent — put the creator back on the lobby
+          // waiting screen with their room code.
+          socket.emit('room_created', {
+            roomId: existingRoomId,
+            color: seat,
+            timeControl: room.timeControl,
+          });
+        }
       }
     }
 
@@ -179,8 +198,13 @@ function registerSocketHandlers(io) {
         clock,
       });
 
-      // Notify white player that opponent joined — game can start.
-      io.to(room.white.socketId).emit('opponent_joined', { clock });
+      // Notify the other player in the room (the creator) that an opponent
+      // joined and the game can start. Emitting to the ROOM rather than a
+      // stored socket id makes this resilient to reconnects: the creator's
+      // current socket is whatever is presently in the room, even if their
+      // original socket id went stale during a network drop / server cold
+      // start. socket.to(...) excludes the joiner, so only the creator gets it.
+      socket.to(roomId).emit('opponent_joined', { clock });
     });
     socket.on('resign', ({ roomId }) => {
       endGame(roomId);
