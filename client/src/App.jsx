@@ -3,6 +3,7 @@ import './App.css';
 import { socket } from './socket';
 import Lobby from './Lobby';
 import Game from './Game';
+import AccountBar from './AccountBar';
 
 export default function App() {
   const [gameStatus, setGameStatus] = useState('waiting');
@@ -23,32 +24,33 @@ export default function App() {
     return () => socket.off('rejoined', handleRejoined);
   }, []);
 
-  if (gameStatus === 'started') {
-    return (
-      <Game
-        roomId={roomId}
-        myColor={myColor}
-        initialFen={initialFen}
-        initialClock={initialClock}
-        onLeave={() => {
-          setGameStatus('waiting');
-          setRoomId('');
-          setMyColor('');
-          setInitialFen('start');
-          setInitialClock(null);
-        }}
-      />
-    );
-  }
-
   return (
-    <Lobby
-      onGameStart={(roomId, color, clock) => {
-        setRoomId(roomId);
-        setMyColor(color);
-        setInitialClock(clock || null);
-        setGameStatus('started');
-      }}
-    />
+    <>
+      <AccountBar />
+      {gameStatus === 'started' ? (
+        <Game
+          roomId={roomId}
+          myColor={myColor}
+          initialFen={initialFen}
+          initialClock={initialClock}
+          onLeave={() => {
+            setGameStatus('waiting');
+            setRoomId('');
+            setMyColor('');
+            setInitialFen('start');
+            setInitialClock(null);
+          }}
+        />
+      ) : (
+        <Lobby
+          onGameStart={(roomId, color, clock) => {
+            setRoomId(roomId);
+            setMyColor(color);
+            setInitialClock(clock || null);
+            setGameStatus('started');
+          }}
+        />
+      )}
+    </>
   );
 }

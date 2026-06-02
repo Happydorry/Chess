@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const { verifyToken } = require('./token');
 
 const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { playerId, socketId } | null)
 const cleanupTimers = {}; // playerId -> timeout
@@ -92,7 +93,22 @@ function endGame(roomId) {
 function registerSocketHandlers(io) {
   io.on('connection', (socket) => {
     const playerId = socket.handshake.auth?.playerId || socket.id;
-    console.log('Connected:', socket.id, 'player:', playerId);
+
+    // If the client is logged in it also sends a JWT. Decode it (best-effort)
+    // so the socket knows the real account behind this connection. Guests have
+    // no token and simply get user = null — game logic still keys on playerId.
+    const decoded = verifyToken(socket.handshake.auth?.token);
+    socket.data.user = decoded
+      ? { id: decoded.sub, username: decoded.username }
+      : null;
+
+    console.log(
+      'Connected:',
+      socket.id,
+      'player:',
+      playerId,
+      socket.data.user ? `(user: ${socket.data.user.username})` : '(guest)',
+    );
 
     // The player is back — cancel any pending room cleanup.
     clearTimeout(cleanupTimers[playerId]);

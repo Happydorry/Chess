@@ -28,8 +28,13 @@ Planned:
   to move to something durable (e.g. Redis or a DB).
 
   /////////////////////////////////
-  - css oerall
-  - player accoutns/ authentication
-    -rewatch the game after
-    - apponent matching
-  - scores
+
+-Your username is not shown to your opponent in a game
+-Games are not saved to your account (no match history)
+-Stats aren't tracked — there's a wins/losses/draws field on your user record, but it's always 0; nothing updates it after a game
+-No rating/ELO, matchmaking, profiles, avatars, friends
+-No password reset or email verification
+
+- apponent matching
+- scores
+- when room is created how to stop it??
