@@ -43,6 +43,12 @@ const roomIdOfPlayer = (playerId) =>
 // Display name for a connection: the logged-in username, or 'Guest'.
 const nameFromSocket = (socket) => socket.data.user?.username || 'Guest';
 
+// Seat names keyed by colour, for the client UI (null until that seat fills).
+const namesOf = (room) => ({
+  white: room?.white?.name ?? null,
+  black: room?.black?.name ?? null,
+});
+
 // Live clock values: subtract the time elapsed on the running side's turn.
 function clockSnapshot(room) {
   const c = room?.clock;
@@ -152,9 +158,12 @@ function registerSocketHandlers(io) {
             color: seat,
             fen: room.fen,
             clock: clockSnapshot(room),
+            names: namesOf(room),
           });
           // Tell the opponent we're back.
-          socket.to(existingRoomId).emit('opponent_joined');
+          socket.to(existingRoomId).emit('opponent_joined', {
+            names: namesOf(room),
+          });
         } else {
           // Still waiting for an opponent — put the creator back on the lobby
           // waiting screen with their room code.
@@ -162,6 +171,7 @@ function registerSocketHandlers(io) {
             roomId: existingRoomId,
             color: seat,
             timeControl: room.timeControl,
+            names: namesOf(room),
           });
         }
       }
@@ -179,7 +189,12 @@ function registerSocketHandlers(io) {
         clock: null, // set when the second player joins and the game starts
       };
       socket.join(roomId);
-      socket.emit('room_created', { roomId, color: 'white', timeControl });
+      socket.emit('room_created', {
+        roomId,
+        color: 'white',
+        timeControl,
+        names: namesOf(rooms[roomId]),
+      });
     });
 
     // JOIN ROOM
@@ -217,6 +232,7 @@ function registerSocketHandlers(io) {
         roomId,
         color: existingSeat || 'black',
         clock,
+        names: namesOf(room),
       });
 
       // Notify the other player in the room (the creator) that an opponent
@@ -225,7 +241,7 @@ function registerSocketHandlers(io) {
       // current socket is whatever is presently in the room, even if their
       // original socket id went stale during a network drop / server cold
       // start. socket.to(...) excludes the joiner, so only the creator gets it.
-      socket.to(roomId).emit('opponent_joined', { clock });
+      socket.to(roomId).emit('opponent_joined', { clock, names: namesOf(room) });
     });
     socket.on('resign', ({ roomId }) => {
       endGame(roomId);
