@@ -20,6 +20,7 @@ export default function Game({
   myColor,
   initialFen = 'start',
   initialClock = null,
+  names = null,
   onLeave,
 }) {
   // One Chess instance for the life of the component (it mutates in place, so
@@ -335,6 +336,13 @@ export default function Game({
 
   const opponentColor = myColor === 'white' ? 'black' : 'white';
 
+  // Show real usernames when available; fall back to You/Opponent for guests.
+  const myName = names?.[myColor];
+  const opponentName = names?.[opponentColor];
+  const myLabel = myName && myName !== 'Guest' ? `${myName} (you)` : 'You';
+  const opponentLabel =
+    opponentName && opponentName !== 'Guest' ? opponentName : 'Opponent';
+
   const renderClock = (color, who) => {
     const ms = liveMs(color);
     const active = clock?.turn === color && !frozen;
@@ -355,7 +363,7 @@ export default function Game({
 
   return (
     <div className="game">
-      {clock && renderClock(opponentColor, 'Opponent')}
+      {clock && renderClock(opponentColor, opponentLabel)}
 
       <div className="board-wrap">
         <Chessboard
@@ -373,7 +381,7 @@ export default function Game({
         )}
       </div>
 
-      {clock && renderClock(myColor, 'You')}
+      {clock && renderClock(myColor, myLabel)}
 
       {!announcement && (
         <div className="game-actions">
