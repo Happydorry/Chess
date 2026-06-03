@@ -11,13 +11,15 @@ export default function App() {
   const [myColor, setMyColor] = useState('');
   const [initialFen, setInitialFen] = useState('start');
   const [initialClock, setInitialClock] = useState(null);
+  const [names, setNames] = useState(null); // { white, black } player names
 
   useEffect(() => {
-    const handleRejoined = ({ roomId, color, fen, clock }) => {
+    const handleRejoined = ({ roomId, color, fen, clock, names }) => {
       setRoomId(roomId);
       setMyColor(color);
       setInitialFen(fen || 'start');
       setInitialClock(clock || null);
+      setNames(names || null);
       setGameStatus('started');
     };
     socket.on('rejoined', handleRejoined);
@@ -33,20 +35,23 @@ export default function App() {
           myColor={myColor}
           initialFen={initialFen}
           initialClock={initialClock}
+          names={names}
           onLeave={() => {
             setGameStatus('waiting');
             setRoomId('');
             setMyColor('');
             setInitialFen('start');
             setInitialClock(null);
+            setNames(null);
           }}
         />
       ) : (
         <Lobby
-          onGameStart={(roomId, color, clock) => {
+          onGameStart={(roomId, color, clock, names) => {
             setRoomId(roomId);
             setMyColor(color);
             setInitialClock(clock || null);
+            setNames(names || null);
             setGameStatus('started');
           }}
         />
