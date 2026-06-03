@@ -40,6 +40,9 @@ const seatOf = (room, playerId) =>
 const roomIdOfPlayer = (playerId) =>
   Object.keys(rooms).find((id) => seatOf(rooms[id], playerId)) ?? null;
 
+// Display name for a connection: the logged-in username, or 'Guest'.
+const nameFromSocket = (socket) => socket.data.user?.username || 'Guest';
+
 // Live clock values: subtract the time elapsed on the running side's turn.
 function clockSnapshot(room) {
   const c = room?.clock;
@@ -132,6 +135,7 @@ function registerSocketHandlers(io) {
       } else {
         const seat = seatOf(room, playerId);
         room[seat].socketId = socket.id;
+        room[seat].name = nameFromSocket(socket); // refresh in case they logged in/out
         socket.join(existingRoomId);
 
         // Has the game actually started (both seats filled)? If so, drop the
@@ -168,7 +172,7 @@ function registerSocketHandlers(io) {
       const roomId = uuidv4().slice(0, 6).toUpperCase(); // e.g. "A3F9B2"
       const timeControl = sanitizeTimeControl(payload);
       rooms[roomId] = {
-        white: { playerId, socketId: socket.id },
+        white: { playerId, socketId: socket.id, name: nameFromSocket(socket) },
         black: null,
         fen: 'start', // initial board state
         timeControl, // chosen by the creator; applied when the game starts
@@ -191,8 +195,9 @@ function registerSocketHandlers(io) {
 
       if (existingSeat) {
         room[existingSeat].socketId = socket.id; // same player reconnecting
+        room[existingSeat].name = nameFromSocket(socket);
       } else {
-        room.black = { playerId, socketId: socket.id };
+        room.black = { playerId, socketId: socket.id, name: nameFromSocket(socket) };
         // Brand-new opponent → the game starts now. Start white's clock using
         // the creator's chosen time control.
         const tc = room.timeControl ?? sanitizeTimeControl();
