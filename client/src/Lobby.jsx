@@ -84,6 +84,17 @@ export default function Lobby({ onGameStart }) {
     socket.emit('join_room', { roomId: inputValue.trim().toUpperCase() });
   };
 
+  // Changed your mind while waiting — tear down the room and return to the
+  // create/join screen.
+  const handleCancelRoom = () => {
+    socket.emit('leave_room', { roomId });
+    roomInfo.current = { roomId: '', color: null };
+    setRoomId('');
+    setMyColor(null);
+    setInputValue('');
+    setErrorMsg(null);
+  };
+
   // Clipboard helpers — show a transient "Copied!" state on the button.
   const flashCopied = (kind) => {
     setCopied(kind);
@@ -202,6 +213,10 @@ export default function Lobby({ onGameStart }) {
             <div className="banner banner-waiting">
               <span className="spinner" /> Waiting for opponent…
             </div>
+
+            <button className="btn btn-ghost" onClick={handleCancelRoom}>
+              Cancel
+            </button>
           </div>
         )}
       </div>
