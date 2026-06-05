@@ -243,6 +243,29 @@ function registerSocketHandlers(io) {
       // start. socket.to(...) excludes the joiner, so only the creator gets it.
       socket.to(roomId).emit('opponent_joined', { clock, names: namesOf(room) });
     });
+
+    // LEAVE ROOM — back out of a room you created while still waiting for an
+    // opponent (the "Cancel" button on the waiting screen). Frees the seat and
+    // deletes the room if it's now empty so it doesn't linger in memory.
+    socket.on('leave_room', ({ roomId }) => {
+      const room = rooms[roomId];
+      if (!room) return;
+      const seat = seatOf(room, playerId);
+      if (!seat) return;
+
+      room[seat] = null;
+      socket.leave(roomId);
+
+      if (!room.white && !room.black) {
+        clearTimeout(flagTimers[roomId]);
+        delete flagTimers[roomId];
+        delete rooms[roomId];
+      } else {
+        // An opponent is still seated — let them know the seat opened up.
+        socket.to(roomId).emit('opponent_left');
+      }
+    });
+
     socket.on('resign', ({ roomId }) => {
       endGame(roomId);
       socket.to(roomId).emit('opponent_resigned');
