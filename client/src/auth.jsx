@@ -68,8 +68,16 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, [applyToken]);
 
+  // Patch the in-memory user (e.g. apply a fresh stats record after a game)
+  // without a round trip. No-op if logged out.
+  const mergeUser = useCallback((patch) => {
+    setUser((u) => (u ? { ...u, ...patch } : u));
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, register, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, register, login, logout, mergeUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

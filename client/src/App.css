@@ -723,6 +723,18 @@
   white-space: nowrap;
 }
 
+.account-stats {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Compact button variant for the account bar. */
 .btn-sm {
   width: auto;
