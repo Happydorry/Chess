@@ -168,7 +168,16 @@ export default function Game({
 
   function checkGameOver() {
     const g = gameRef.current;
-    if (g.isGameOver()) socket.emit('game_ended', { roomId }); // stop the clock
+    if (g.isGameOver()) {
+      // The side to move is checkmated (if any) loses; everything else is a draw.
+      const winner = g.isCheckmate()
+        ? g.turn() === 'w'
+          ? 'black'
+          : 'white'
+        : null;
+      // Stop the clock and report the result so it's recorded to the accounts.
+      socket.emit('game_ended', { roomId, result: { winner } });
+    }
     if (g.isCheckmate()) {
       // The side to move is checkmated — so the other side won.
       const winner = g.turn() === 'w' ? 'black' : 'white';

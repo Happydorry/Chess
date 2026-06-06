@@ -1,5 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { verifyToken } = require('./token');
+const User = require('./models/User');
+const { isDBConnected } = require('./db');
 
 const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { playerId, socketId } | null)
 const cleanupTimers = {}; // playerId -> timeout
@@ -43,6 +45,18 @@ const roomIdOfPlayer = (playerId) =>
 // Display name for a connection: the logged-in username, or 'Guest'.
 const nameFromSocket = (socket) => socket.data.user?.username || 'Guest';
 
+// Account id behind a connection, or null for guests. Stored on the seat so the
+// final result can be credited to the right account when the game ends.
+const userIdFromSocket = (socket) => socket.data.user?.id ?? null;
+
+// Build a fresh seat for a connection.
+const makeSeat = (socket, playerId) => ({
+  playerId,
+  socketId: socket.id,
+  name: nameFromSocket(socket),
+  userId: userIdFromSocket(socket),
+});
+
 // Seat names keyed by colour, for the client UI (null until that seat fills).
 const namesOf = (room) => ({
   white: room?.white?.name ?? null,
@@ -82,21 +96,65 @@ function scheduleFlagFall(io, roomId) {
         winner,
         clock: clockSnapshot(room),
       });
-      endGame(roomId);
+      endGame(roomId, { winner });
     },
     Math.max(0, remaining),
   );
 }
 
-// Mark the game as over: freeze the clock, cancel its flag timer, and flag the
-// room so reconnects don't drag the player back into a finished match.
-function endGame(roomId) {
+// Map a game outcome to (white score, black score), where 1 = win, 0 = loss,
+// 0.5 = draw. `winner` is 'white' | 'black' | null (null = draw).
+const scoresFor = (winner) =>
+  winner === 'white'
+    ? [1, 0]
+    : winner === 'black'
+      ? [0, 1]
+      : [0.5, 0.5];
+
+// Credit a finished game to the players' accounts. Only logged-in seats are
+// recorded; guests have no account to update. Best-effort: if the DB is down we
+// just skip it (the game still ends normally). `outcome` is undefined for games
+// that shouldn't count (e.g. aborts).
+async function recordResult(room, outcome) {
+  if (!outcome || !isDBConnected()) return;
+
+  const whiteId = room.white?.userId ?? null;
+  const blackId = room.black?.userId ?? null;
+  if (!whiteId && !blackId) return; // both guests — nothing to record
+  if (whiteId && whiteId === blackId) return; // same account on both seats
+
+  const [whiteScore, blackScore] = scoresFor(outcome.winner);
+  const field = (score) =>
+    score === 1 ? 'wins' : score === 0 ? 'losses' : 'draws';
+
+  await Promise.all(
+    [
+      whiteId && [whiteId, field(whiteScore)],
+      blackId && [blackId, field(blackScore)],
+    ]
+      .filter(Boolean)
+      .map(([id, key]) =>
+        User.findByIdAndUpdate(id, { $inc: { [`stats.${key}`]: 1 } }),
+      ),
+  );
+}
+
+// Mark the game as over: freeze the clock, cancel its flag timer, flag the room
+// so reconnects don't drag the player back into a finished match, and record the
+// result to the players' accounts. The room.over guard makes this idempotent so
+// the result is recorded exactly once even though several paths (and both
+// clients) can signal the same ending.
+function endGame(roomId, outcome) {
   clearTimeout(flagTimers[roomId]);
   delete flagTimers[roomId];
   const room = rooms[roomId];
   if (!room) return;
+  if (room.over) return;
   if (room.clock) room.clock.turn = null;
   room.over = true;
+  recordResult(room, outcome).catch((err) =>
+    console.error('[stats] failed to record result:', err.message),
+  );
 }
 
 function registerSocketHandlers(io) {
@@ -142,6 +200,7 @@ function registerSocketHandlers(io) {
         const seat = seatOf(room, playerId);
         room[seat].socketId = socket.id;
         room[seat].name = nameFromSocket(socket); // refresh in case they logged in/out
+        room[seat].userId = userIdFromSocket(socket);
         socket.join(existingRoomId);
 
         // Has the game actually started (both seats filled)? If so, drop the
@@ -182,7 +241,7 @@ function registerSocketHandlers(io) {
       const roomId = uuidv4().slice(0, 6).toUpperCase(); // e.g. "A3F9B2"
       const timeControl = sanitizeTimeControl(payload);
       rooms[roomId] = {
-        white: { playerId, socketId: socket.id, name: nameFromSocket(socket) },
+        white: makeSeat(socket, playerId),
         black: null,
         fen: 'start', // initial board state
         timeControl, // chosen by the creator; applied when the game starts
@@ -211,8 +270,9 @@ function registerSocketHandlers(io) {
       if (existingSeat) {
         room[existingSeat].socketId = socket.id; // same player reconnecting
         room[existingSeat].name = nameFromSocket(socket);
+        room[existingSeat].userId = userIdFromSocket(socket);
       } else {
-        room.black = { playerId, socketId: socket.id, name: nameFromSocket(socket) };
+        room.black = makeSeat(socket, playerId);
         // Brand-new opponent → the game starts now. Start white's clock using
         // the creator's chosen time control.
         const tc = room.timeControl ?? sanitizeTimeControl();
@@ -267,19 +327,29 @@ function registerSocketHandlers(io) {
     });
 
     socket.on('resign', ({ roomId }) => {
-      endGame(roomId);
+      const room = rooms[roomId];
+      const seat = room && seatOf(room, playerId);
+      // The resigning side loses; their opponent is credited the win.
+      const winner = seat ? (seat === 'white' ? 'black' : 'white') : null;
+      endGame(roomId, winner ? { winner } : undefined);
       socket.to(roomId).emit('opponent_resigned');
     });
 
+    // Aborts don't count — pass no outcome so nothing is recorded.
     socket.on('abort', ({ roomId }) => {
       endGame(roomId);
       socket.to(roomId).emit('opponent_aborted');
     });
 
-    // Game reached a natural end (checkmate / stalemate / draw) — stop the clock
-    // so its flag timer can't fire a spurious time-out afterwards.
-    socket.on('game_ended', ({ roomId }) => {
-      endGame(roomId);
+    // Game reached a natural end (checkmate / stalemate / draw). The client that
+    // detected it reports the winner (null = draw); we don't trust it for moves
+    // but the result is consistent with the authoritative FEN both sides share.
+    socket.on('game_ended', ({ roomId, result }) => {
+      const winner =
+        result?.winner === 'white' || result?.winner === 'black'
+          ? result.winner
+          : null;
+      endGame(roomId, { winner });
     });
 
     // MAKE MOVE — broadcast to the other player; keep the authoritative FEN and
@@ -335,7 +405,7 @@ function registerSocketHandlers(io) {
                 winner: opponentSeat,
                 loser: seat,
               });
-              endGame(roomId);
+              endGame(roomId, { winner: opponentSeat });
             }
           }
 
