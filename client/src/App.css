@@ -590,6 +590,14 @@
   color: var(--text);
 }
 
+.game-over-record {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+  font-variant-numeric: tabular-nums;
+}
+
 .game-over .btn-primary {
   margin-top: 12px;
 }

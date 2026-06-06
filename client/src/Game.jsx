@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { socket } from './socket';
+import { useAuth } from './auth';
 
 const RESULT_ICON = { win: '🏆', loss: '🏳️', draw: '🤝', neutral: '⚠️' };
 const RESULT_DELAY_MS = 4000; // how long the "Checkmate!" banner shows first
@@ -30,9 +31,11 @@ export default function Game({
     gameRef.current =
       initialFen && initialFen !== 'start' ? new Chess(initialFen) : new Chess();
   }
+  const { mergeUser } = useAuth();
   const [fen, setFen] = useState(gameRef.current.fen());
   const [announcement, setAnnouncement] = useState(null); // transient banner text
   const [result, setResult] = useState(null); // final card { kind, title, detail }
+  const [record, setRecord] = useState(null); // my updated {wins,losses,draws}
   const endTimer = useRef(null);
 
   // Move log for in-game replay. Each entry is { fen, san }; the first entry is
@@ -148,12 +151,23 @@ export default function Game({
       );
     };
 
+    // Server recorded the result — pick out my side's fresh record and apply it
+    // to the account so the card and account bar both reflect it. null = a guest
+    // seat (no account to update).
+    const handleStatsUpdate = ({ white, black }) => {
+      const mine = myColor === 'white' ? white : black;
+      if (!mine) return;
+      setRecord(mine);
+      mergeUser({ stats: mine });
+    };
+
     socket.on('move_made', handleMoveMade);
     socket.on('opponent_resigned', handleResigned);
     socket.on('opponent_aborted', handleAborted);
     socket.on('clock_update', handleClockUpdate);
     socket.on('time_up', handleTimeUp);
     socket.on('opponent_forfeit', handleForfeit);
+    socket.on('stats_update', handleStatsUpdate);
 
     return () => {
       socket.off('move_made', handleMoveMade);
@@ -162,6 +176,7 @@ export default function Game({
       socket.off('clock_update', handleClockUpdate);
       socket.off('time_up', handleTimeUp);
       socket.off('opponent_forfeit', handleForfeit);
+      socket.off('stats_update', handleStatsUpdate);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -322,6 +337,11 @@ export default function Game({
           </div>
           <h2 className="game-over-title">{result.title}</h2>
           {result.detail && <p className="game-over-detail">{result.detail}</p>}
+          {record && (
+            <p className="game-over-record">
+              Your record: {record.wins}W · {record.losses}L · {record.draws}D
+            </p>
+          )}
           <div className="game-over-actions">
             {hasMoves && (
               <button
