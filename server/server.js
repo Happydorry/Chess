@@ -96,7 +96,7 @@ function scheduleFlagFall(io, roomId) {
         winner,
         clock: clockSnapshot(room),
       });
-      endGame(roomId, { winner });
+      endGame(io, roomId, { winner });
     },
     Math.max(0, remaining),
   );
@@ -111,11 +111,27 @@ const scoresFor = (winner) =>
       ? [0, 1]
       : [0.5, 0.5];
 
-// Credit a finished game to the players' accounts. Only logged-in seats are
-// recorded; guests have no account to update. Best-effort: if the DB is down we
-// just skip it (the game still ends normally). `outcome` is undefined for games
-// that shouldn't count (e.g. aborts).
-async function recordResult(room, outcome) {
+// Which stat to bump for a given score: 1 = win, 0 = loss, 0.5 = draw.
+const fieldFor = (score) =>
+  score === 1 ? 'wins' : score === 0 ? 'losses' : 'draws';
+
+// Atomically bump one stat and return the account's fresh {wins,losses,draws}.
+async function bumpStats(userId, score) {
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $inc: { [`stats.${fieldFor(score)}`]: 1 } },
+    { new: true },
+  );
+  if (!user) return null;
+  const { wins, losses, draws } = user.stats;
+  return { wins, losses, draws };
+}
+
+// Credit a finished game to the players' accounts and tell the room each side's
+// updated record. Only logged-in seats are recorded; guests have no account.
+// Best-effort: if the DB is down we just skip it (the game still ends normally).
+// `outcome` is undefined for games that shouldn't count (e.g. aborts).
+async function recordResult(io, roomId, room, outcome) {
   if (!outcome || !isDBConnected()) return;
 
   const whiteId = room.white?.userId ?? null;
@@ -124,19 +140,13 @@ async function recordResult(room, outcome) {
   if (whiteId && whiteId === blackId) return; // same account on both seats
 
   const [whiteScore, blackScore] = scoresFor(outcome.winner);
-  const field = (score) =>
-    score === 1 ? 'wins' : score === 0 ? 'losses' : 'draws';
+  const [white, black] = await Promise.all([
+    whiteId ? bumpStats(whiteId, whiteScore) : null,
+    blackId ? bumpStats(blackId, blackScore) : null,
+  ]);
 
-  await Promise.all(
-    [
-      whiteId && [whiteId, field(whiteScore)],
-      blackId && [blackId, field(blackScore)],
-    ]
-      .filter(Boolean)
-      .map(([id, key]) =>
-        User.findByIdAndUpdate(id, { $inc: { [`stats.${key}`]: 1 } }),
-      ),
-  );
+  // Each client reads the entry for its own colour; null means a guest seat.
+  io.to(roomId).emit('stats_update', { white, black });
 }
 
 // Mark the game as over: freeze the clock, cancel its flag timer, flag the room
@@ -144,7 +154,7 @@ async function recordResult(room, outcome) {
 // result to the players' accounts. The room.over guard makes this idempotent so
 // the result is recorded exactly once even though several paths (and both
 // clients) can signal the same ending.
-function endGame(roomId, outcome) {
+function endGame(io, roomId, outcome) {
   clearTimeout(flagTimers[roomId]);
   delete flagTimers[roomId];
   const room = rooms[roomId];
@@ -152,7 +162,7 @@ function endGame(roomId, outcome) {
   if (room.over) return;
   if (room.clock) room.clock.turn = null;
   room.over = true;
-  recordResult(room, outcome).catch((err) =>
+  recordResult(io, roomId, room, outcome).catch((err) =>
     console.error('[stats] failed to record result:', err.message),
   );
 }
@@ -331,13 +341,13 @@ function registerSocketHandlers(io) {
       const seat = room && seatOf(room, playerId);
       // The resigning side loses; their opponent is credited the win.
       const winner = seat ? (seat === 'white' ? 'black' : 'white') : null;
-      endGame(roomId, winner ? { winner } : undefined);
+      endGame(io, roomId, winner ? { winner } : undefined);
       socket.to(roomId).emit('opponent_resigned');
     });
 
     // Aborts don't count — pass no outcome so nothing is recorded.
     socket.on('abort', ({ roomId }) => {
-      endGame(roomId);
+      endGame(io, roomId);
       socket.to(roomId).emit('opponent_aborted');
     });
 
@@ -349,7 +359,7 @@ function registerSocketHandlers(io) {
         result?.winner === 'white' || result?.winner === 'black'
           ? result.winner
           : null;
-      endGame(roomId, { winner });
+      endGame(io, roomId, { winner });
     });
 
     // MAKE MOVE — broadcast to the other player; keep the authoritative FEN and
@@ -405,7 +415,7 @@ function registerSocketHandlers(io) {
                 winner: opponentSeat,
                 loser: seat,
               });
-              endGame(roomId, { winner: opponentSeat });
+              endGame(io, roomId, { winner: opponentSeat });
             }
           }
 
