@@ -115,20 +115,26 @@ const scoresFor = (winner) =>
 const fieldFor = (score) =>
   score === 1 ? 'wins' : score === 0 ? 'losses' : 'draws';
 
-// Atomically bump one stat and return the account's fresh {wins,losses,draws}.
-async function bumpStats(userId, score) {
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { $inc: { [`stats.${fieldFor(score)}`]: 1 } },
-    { new: true },
+// ----- Elo rating -----
+const DEFAULT_RATING = 1200;
+const ELO_K = Number(process.env.ELO_K) || 32; // points at stake per game
+const RATING_FLOOR = 100; // a rating never drops below this
+
+// Standard Elo: the probability `rating` scores against `oppRating` (0..1).
+const expectedScore = (rating, oppRating) =>
+  1 / (1 + 10 ** ((oppRating - rating) / 400));
+
+// New rating after scoring `score` (1 win / 0.5 draw / 0 loss) vs `oppRating`.
+const nextRating = (rating, oppRating, score) =>
+  Math.max(
+    RATING_FLOOR,
+    Math.round(rating + ELO_K * (score - expectedScore(rating, oppRating))),
   );
-  if (!user) return null;
-  const { wins, losses, draws } = user.stats;
-  return { wins, losses, draws };
-}
 
 // Credit a finished game to the players' accounts and tell the room each side's
 // updated record. Only logged-in seats are recorded; guests have no account.
+// Ratings only move in account-vs-account games — playing a guest still counts
+// toward W/L/D but leaves your rating untouched (so guests can't be farmed).
 // Best-effort: if the DB is down we just skip it (the game still ends normally).
 // `outcome` is undefined for games that shouldn't count (e.g. aborts).
 async function recordResult(io, roomId, room, outcome) {
@@ -139,11 +145,35 @@ async function recordResult(io, roomId, room, outcome) {
   if (!whiteId && !blackId) return; // both guests — nothing to record
   if (whiteId && whiteId === blackId) return; // same account on both seats
 
-  const [whiteScore, blackScore] = scoresFor(outcome.winner);
-  const [white, black] = await Promise.all([
-    whiteId ? bumpStats(whiteId, whiteScore) : null,
-    blackId ? bumpStats(blackId, blackScore) : null,
+  const [whiteUser, blackUser] = await Promise.all([
+    whiteId ? User.findById(whiteId) : null,
+    blackId ? User.findById(blackId) : null,
   ]);
+
+  const [whiteScore, blackScore] = scoresFor(outcome.winner);
+  const rated = Boolean(whiteUser && blackUser);
+  const whiteBefore = whiteUser?.rating ?? DEFAULT_RATING;
+  const blackBefore = blackUser?.rating ?? DEFAULT_RATING;
+
+  // Bump the record, move the rating (rated games only), and build the payload
+  // line this side's client will read.
+  const apply = (user, score, before, oppBefore) => {
+    if (!user) return null;
+    user.stats[fieldFor(score)] += 1;
+    let delta = 0;
+    if (rated) {
+      const after = nextRating(before, oppBefore, score);
+      delta = after - before;
+      user.rating = after;
+    }
+    const { wins, losses, draws } = user.stats;
+    return { wins, losses, draws, rating: user.rating, delta, rated };
+  };
+
+  const white = apply(whiteUser, whiteScore, whiteBefore, blackBefore);
+  const black = apply(blackUser, blackScore, blackBefore, whiteBefore);
+
+  await Promise.all([whiteUser?.save(), blackUser?.save()].filter(Boolean));
 
   // Each client reads the entry for its own colour; null means a guest seat.
   io.to(roomId).emit('stats_update', { white, black });
