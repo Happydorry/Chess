@@ -16,6 +16,7 @@ function publicUser(user) {
     username: user.username,
     email: user.email,
     stats: user.stats,
+    rating: user.rating,
   };
 }
 
