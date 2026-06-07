@@ -158,7 +158,10 @@ export default function Game({
       const mine = myColor === 'white' ? white : black;
       if (!mine) return;
       setRecord(mine);
-      mergeUser({ stats: mine });
+      mergeUser({
+        stats: { wins: mine.wins, losses: mine.losses, draws: mine.draws },
+        rating: mine.rating,
+      });
     };
 
     socket.on('move_made', handleMoveMade);
@@ -337,6 +340,18 @@ export default function Game({
           </div>
           <h2 className="game-over-title">{result.title}</h2>
           {result.detail && <p className="game-over-detail">{result.detail}</p>}
+          {record?.rated && (
+            <p className="game-over-rating">
+              Rating {record.rating}{' '}
+              <span
+                className="rating-delta"
+                data-dir={record.delta >= 0 ? 'up' : 'down'}
+              >
+                {record.delta >= 0 ? '+' : ''}
+                {record.delta}
+              </span>
+            </p>
+          )}
           {record && (
             <p className="game-over-record">
               Your record: {record.wins}W · {record.losses}L · {record.draws}D
