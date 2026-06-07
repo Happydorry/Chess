@@ -21,6 +21,11 @@ export default function AccountBar() {
             <span className="account-name" title={user.email}>
               ♟ {user.username}
             </span>
+            {typeof user.rating === 'number' && (
+              <span className="account-rating" title="Elo rating">
+                ☆ {user.rating}
+              </span>
+            )}
             {stats && (
               <span
                 className="account-stats"

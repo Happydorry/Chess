@@ -743,6 +743,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.account-rating {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-h);
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Compact button variant for the account bar. */
 .btn-sm {
   width: auto;
