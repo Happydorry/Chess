@@ -740,38 +740,43 @@
   gap: 8px;
 }
 
+/* One pill that groups name · rating · record, divided by thin separators. */
+.account-card {
+  display: flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.account-card > span {
+  padding: 6px 12px;
+}
+
+/* Hairline divider between segments. */
+.account-card > span + span {
+  border-left: 1px solid var(--accent-border);
+}
+
 .account-name {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-h);
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  white-space: nowrap;
-}
-
-.account-stats {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
 .account-rating {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-h);
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-stats {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 

@@ -18,22 +18,24 @@ export default function AccountBar() {
       <div className="account-bar">
         {user ? (
           <>
-            <span className="account-name" title={user.email}>
-              ♟ {user.username}
-            </span>
-            {typeof user.rating === 'number' && (
-              <span className="account-rating" title="Elo rating">
-                ☆ {user.rating}
+            <div className="account-card">
+              <span className="account-name" title={user.email}>
+                ♟ {user.username}
               </span>
-            )}
-            {stats && (
-              <span
-                className="account-stats"
-                title={`${stats.wins} wins · ${stats.losses} losses · ${stats.draws} draws`}
-              >
-                {stats.wins}W {stats.losses}L {stats.draws}D
-              </span>
-            )}
+              {typeof user.rating === 'number' && (
+                <span className="account-rating" title="Elo rating">
+                  {user.rating}
+                </span>
+              )}
+              {stats && (
+                <span
+                  className="account-stats"
+                  title={`${stats.wins} wins · ${stats.losses} losses · ${stats.draws} draws`}
+                >
+                  {stats.wins}W {stats.losses}L {stats.draws}D
+                </span>
+              )}
+            </div>
             <button className="btn btn-ghost btn-sm" onClick={logout}>
               Log out
             </button>
