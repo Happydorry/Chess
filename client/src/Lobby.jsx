@@ -16,6 +16,7 @@ export default function Lobby({ onGameStart }) {
   const [myColor, setMyColor] = useState(null);
   const [presetIndex, setPresetIndex] = useState(DEFAULT_PRESET);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [searching, setSearching] = useState(false); // in the matchmaking queue
   const [copied, setCopied] = useState(null); // 'link' | 'code' | null
   const copyTimer = useRef(null);
 
@@ -43,11 +44,26 @@ export default function Lobby({ onGameStart }) {
       onGameStart(roomId, color, clock, names);
     };
 
-    const handleError = ({ msg }) => setErrorMsg(msg || 'Something went wrong');
+    const handleError = ({ msg }) => {
+      setSearching(false);
+      setErrorMsg(msg || 'Something went wrong');
+    };
+
+    // Matchmaking: the server paired us with someone — jump straight in.
+    const handleMatchFound = ({ roomId, color, clock, names }) => {
+      roomInfo.current = { roomId, color };
+      setSearching(false);
+      onGameStart(roomId, color, clock, names);
+    };
+
+    // Server confirms we're queued (no opponent yet).
+    const handleMatchSearching = () => setSearching(true);
 
     socket.on('room_created', handleRoomCreated);
     socket.on('room_joined', handleRoomJoined);
     socket.on('opponent_joined', handleOpponentJoined);
+    socket.on('match_found', handleMatchFound);
+    socket.on('match_searching', handleMatchSearching);
     socket.on('error', handleError);
 
     // Cleanup: a useEffect must return a function (or nothing).
@@ -55,6 +71,8 @@ export default function Lobby({ onGameStart }) {
       socket.off('room_created', handleRoomCreated);
       socket.off('room_joined', handleRoomJoined);
       socket.off('opponent_joined', handleOpponentJoined);
+      socket.off('match_found', handleMatchFound);
+      socket.off('match_searching', handleMatchSearching);
       socket.off('error', handleError);
     };
   }, [onGameStart]);
@@ -76,6 +94,20 @@ export default function Lobby({ onGameStart }) {
     setErrorMsg(null);
     const { timeMs, incrementMs } = TIME_PRESETS[presetIndex];
     socket.emit('create_room', { timeMs, incrementMs });
+  };
+
+  // Quick Play: drop into the matchmaking queue for the selected time control.
+  const handleQuickPlay = () => {
+    setErrorMsg(null);
+    setSearching(true);
+    const { timeMs, incrementMs } = TIME_PRESETS[presetIndex];
+    socket.emit('find_match', { timeMs, incrementMs });
+  };
+
+  // Back out of the queue and return to the lobby.
+  const handleCancelSearch = () => {
+    socket.emit('cancel_match');
+    setSearching(false);
   };
 
   const handleJoinRoom = () => {
@@ -131,12 +163,12 @@ export default function Lobby({ onGameStart }) {
         </div>
         <h1 className="lobby-title">Chess</h1>
         <p className="lobby-subtitle">
-          Create a room or join with a code to play.
+          Quick Play to get matched, or use a room code with a friend.
         </p>
 
         {errorMsg && <div className="banner banner-error">{errorMsg}</div>}
 
-        {!inRoom && (
+        {!inRoom && !searching && (
           <>
             <div className="time-control">
               <div className="time-control-label">Game length</div>
@@ -156,8 +188,15 @@ export default function Lobby({ onGameStart }) {
               </div>
             </div>
 
-            <button className="btn btn-primary" onClick={handleCreateRoom}>
-              Create Room
+            <button className="btn btn-primary" onClick={handleQuickPlay}>
+              Quick Play
+            </button>
+
+            <button
+              className="btn btn-ghost btn-block"
+              onClick={handleCreateRoom}
+            >
+              Create private room
             </button>
 
             <div className="divider">
@@ -178,6 +217,22 @@ export default function Lobby({ onGameStart }) {
               </button>
             </div>
           </>
+        )}
+
+        {searching && (
+          <div className="room-status">
+            <div className="color-badge">
+              {TIME_PRESETS[presetIndex].label} · {TIME_PRESETS[presetIndex].sub}
+            </div>
+
+            <div className="banner banner-waiting">
+              <span className="spinner" /> Searching for an opponent…
+            </div>
+
+            <button className="btn btn-ghost" onClick={handleCancelSearch}>
+              Cancel
+            </button>
+          </div>
         )}
 
         {inRoom && (
