@@ -27,3 +27,6 @@ playwright-report/
 # Root-level screenshots from manual browser-driven testing.
 # Limited to repo root so it doesn't catch real image assets in subdirectories.
 /*.png
+
+# Personal scratch TODO — kept local, not tracked.
+/TODO.md
