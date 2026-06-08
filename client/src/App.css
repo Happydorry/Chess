@@ -146,6 +146,11 @@
   transform: translateY(1px);
 }
 
+/* Full-width button (e.g. stacked lobby actions). */
+.btn-block {
+  width: 100%;
+}
+
 .btn-primary {
   width: 100%;
   background: linear-gradient(180deg, #c89bff, #a855f7);
