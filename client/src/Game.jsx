@@ -92,6 +92,13 @@ export default function Game({
     return clock[side];
   };
 
+  // Returning to the lobby after a game: tell the server to free our seat so the
+  // finished room is cleaned up and matchmaking won't think we're still in it.
+  function handleLeave() {
+    socket.emit('leave_room', { roomId });
+    onLeave();
+  }
+
   // End the game: optionally flash a banner first, then show the result card.
   function endGame(res, banner) {
     if (banner) {
@@ -322,7 +329,7 @@ export default function Game({
           >
             Done
           </button>
-          <button className="btn btn-primary" onClick={onLeave}>
+          <button className="btn btn-primary" onClick={handleLeave}>
             Back to Lobby
           </button>
         </div>
@@ -369,7 +376,7 @@ export default function Game({
                 Review game
               </button>
             )}
-            <button className="btn btn-primary" onClick={onLeave}>
+            <button className="btn btn-primary" onClick={handleLeave}>
               Back to Lobby
             </button>
           </div>

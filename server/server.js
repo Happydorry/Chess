@@ -54,6 +54,21 @@ const seatOf = (room, playerId) =>
 const roomIdOfPlayer = (playerId) =>
   Object.keys(rooms).find((id) => seatOf(rooms[id], playerId)) ?? null;
 
+// Free a player's seat and tear the room down if it's now empty. Used when a
+// player leaves a finished game so it doesn't linger in memory (or keep them
+// "stuck" in a dead room from matchmaking's point of view).
+function releaseSeat(roomId, playerId) {
+  const room = rooms[roomId];
+  if (!room) return;
+  const seat = seatOf(room, playerId);
+  if (seat) room[seat] = null;
+  if (!room.white && !room.black) {
+    clearTimeout(flagTimers[roomId]);
+    delete flagTimers[roomId];
+    delete rooms[roomId];
+  }
+}
+
 // Display name for a connection: the logged-in username, or 'Guest'.
 const nameFromSocket = (socket) => socket.data.user?.username || 'Guest';
 
@@ -424,8 +439,14 @@ function registerSocketHandlers(io) {
     // FIND MATCH — join the matchmaking queue for the chosen time control, or
     // get paired right away if a compatible opponent is already waiting.
     socket.on('find_match', (payload) => {
-      // Already mid-game (e.g. a stray click after reconnect)? Ignore.
-      if (roomIdOfPlayer(playerId)) return;
+      // Already seated somewhere? If the game is still live, ignore the click.
+      // If it's a finished game they never formally left, free that seat first
+      // so they can queue again instead of being stuck in a dead room.
+      const currentRoomId = roomIdOfPlayer(playerId);
+      if (currentRoomId) {
+        if (!rooms[currentRoomId].over) return;
+        releaseSeat(currentRoomId, playerId);
+      }
 
       const timeControl = sanitizeTimeControl(payload);
       const key = tcKey(timeControl);
