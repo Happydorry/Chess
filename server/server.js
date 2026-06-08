@@ -8,6 +8,18 @@ const cleanupTimers = {}; // playerId -> timeout
 const flagTimers = {}; // roomId -> timeout that fires when the running clock hits zero
 const GRACE_MS = Number(process.env.GRACE_MS) || 30_000; // keep a room alive this long after a player drops
 
+// Matchmaking queue: players waiting to be auto-paired with someone who picked
+// the same time control. Each entry is a seat-to-be plus the chosen control and
+// a `key` that two players must share to be matched.
+// { playerId, socketId, name, userId, timeControl, key }
+let matchQueue = [];
+
+const tcKey = (tc) => `${tc.initialMs}/${tc.incrementMs}`;
+
+const removeFromQueue = (playerId) => {
+  matchQueue = matchQueue.filter((e) => e.playerId !== playerId);
+};
+
 // Time control. Deadline-based: we store each side's remaining ms plus when the
 // running side's turn started, and derive live time on demand (no per-second tick).
 const INITIAL_TIME_MS = Number(process.env.CLOCK_MS) || 5 * 60_000; // default 5 min/side
@@ -197,6 +209,49 @@ function endGame(io, roomId, outcome) {
   );
 }
 
+// Build a started room for two matched players and drop them both straight into
+// the game. Colours are randomised for fairness.
+function startMatch(io, a, b) {
+  const [whiteEntry, blackEntry] = Math.random() < 0.5 ? [a, b] : [b, a];
+  const roomId = uuidv4().slice(0, 6).toUpperCase();
+  const tc = a.timeControl; // a and b share the same control (matched on key)
+
+  const seatFromEntry = (e) => ({
+    playerId: e.playerId,
+    socketId: e.socketId,
+    name: e.name,
+    userId: e.userId,
+  });
+
+  rooms[roomId] = {
+    white: seatFromEntry(whiteEntry),
+    black: seatFromEntry(blackEntry),
+    fen: 'start',
+    timeControl: tc,
+    clock: {
+      white: tc.initialMs,
+      black: tc.initialMs,
+      increment: tc.incrementMs,
+      turn: 'white',
+      turnStartedAt: Date.now(),
+    },
+  };
+  scheduleFlagFall(io, roomId);
+
+  const clock = clockSnapshot(rooms[roomId]);
+  const names = namesOf(rooms[roomId]);
+
+  for (const [entry, color] of [
+    [whiteEntry, 'white'],
+    [blackEntry, 'black'],
+  ]) {
+    const s = io.sockets.sockets.get(entry.socketId);
+    if (!s) continue;
+    s.join(roomId);
+    s.emit('match_found', { roomId, color, clock, names });
+  }
+}
+
 function registerSocketHandlers(io) {
   io.on('connection', (socket) => {
     const playerId = socket.handshake.auth?.playerId || socket.id;
@@ -366,6 +421,55 @@ function registerSocketHandlers(io) {
       }
     });
 
+    // FIND MATCH — join the matchmaking queue for the chosen time control, or
+    // get paired right away if a compatible opponent is already waiting.
+    socket.on('find_match', (payload) => {
+      // Already mid-game (e.g. a stray click after reconnect)? Ignore.
+      if (roomIdOfPlayer(playerId)) return;
+
+      const timeControl = sanitizeTimeControl(payload);
+      const key = tcKey(timeControl);
+
+      // Drop any prior entry for this player (double-click / re-search).
+      removeFromQueue(playerId);
+
+      // Take the oldest compatible opponent whose socket is still connected,
+      // discarding any stale entries we run into on the way.
+      let opponent = null;
+      while (matchQueue.length) {
+        const idx = matchQueue.findIndex(
+          (e) => e.key === key && e.playerId !== playerId,
+        );
+        if (idx === -1) break;
+        const candidate = matchQueue.splice(idx, 1)[0];
+        if (io.sockets.sockets.get(candidate.socketId)?.connected) {
+          opponent = candidate;
+          break;
+        }
+      }
+
+      const me = {
+        playerId,
+        socketId: socket.id,
+        name: nameFromSocket(socket),
+        userId: userIdFromSocket(socket),
+        timeControl,
+        key,
+      };
+
+      if (!opponent) {
+        matchQueue.push(me);
+        socket.emit('match_searching');
+        return;
+      }
+
+      startMatch(io, opponent, me);
+    });
+
+    // CANCEL MATCH — leave the matchmaking queue (the "Cancel" on the searching
+    // screen). No-op if not queued.
+    socket.on('cancel_match', () => removeFromQueue(playerId));
+
     socket.on('resign', ({ roomId }) => {
       const room = rooms[roomId];
       const seat = room && seatOf(room, playerId);
@@ -417,6 +521,9 @@ function registerSocketHandlers(io) {
     // so reloads / brief network drops don't kill an in-progress match.
     socket.on('disconnect', () => {
       console.log('Disconnected:', socket.id);
+      // A searching player who drops should leave the queue so nobody gets
+      // paired with a ghost.
+      removeFromQueue(playerId);
       const roomId = roomIdOfPlayer(playerId);
       if (!roomId) return;
 
