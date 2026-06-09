@@ -109,4 +109,4 @@ router.get('/me', requireDB, requireAuth, async (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
-module.exports = { router };
+module.exports = { router, requireDB };

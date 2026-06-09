@@ -7,6 +7,7 @@ const cors = require('cors');
 const registerSocketHandlers = require('./server');
 const { connectDB } = require('./db');
 const { router: authRouter } = require('./auth');
+const { router: usersRouter } = require('./users');
 
 const app = express();
 app.use(cors());
@@ -26,6 +27,9 @@ app.get('/', (req, res) => {
 
 // Accounts / authentication (optional layer — guest play needs none of this).
 app.use('/api/auth', authRouter);
+
+// Public player profiles (viewable by anyone, including guests).
+app.use('/api/users', usersRouter);
 
 registerSocketHandlers(io);
 
