@@ -11,6 +11,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Fetch a player's public profile by username.
+export async function getProfile(username) {
+  const res = await api.get(`/users/${encodeURIComponent(username)}`);
+  return res.data.profile;
+}
+
 // Pull a human-readable message out of an axios error.
 export function errMsg(err) {
   return (
