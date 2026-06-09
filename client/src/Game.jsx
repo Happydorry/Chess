@@ -3,6 +3,7 @@ import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { socket } from './socket';
 import { useAuth } from './auth';
+import Profile from './Profile';
 
 const RESULT_ICON = { win: '🏆', loss: '🏳️', draw: '🤝', neutral: '⚠️' };
 const RESULT_DELAY_MS = 4000; // how long the "Checkmate!" banner shows first
@@ -36,6 +37,7 @@ export default function Game({
   const [announcement, setAnnouncement] = useState(null); // transient banner text
   const [result, setResult] = useState(null); // final card { kind, title, detail }
   const [record, setRecord] = useState(null); // my updated {wins,losses,draws}
+  const [profileName, setProfileName] = useState(null); // open profile modal
   const endTimer = useRef(null);
 
   // Move log for in-game replay. Each entry is { fen, san }; the first entry is
@@ -388,13 +390,16 @@ export default function Game({
   const opponentColor = myColor === 'white' ? 'black' : 'white';
 
   // Show real usernames when available; fall back to You/Opponent for guests.
+  // A real account name (not a guest) is also a link to that player's profile.
   const myName = names?.[myColor];
   const opponentName = names?.[opponentColor];
-  const myLabel = myName && myName !== 'Guest' ? `${myName} (you)` : 'You';
-  const opponentLabel =
-    opponentName && opponentName !== 'Guest' ? opponentName : 'Opponent';
+  const myUsername = myName && myName !== 'Guest' ? myName : null;
+  const opponentUsername =
+    opponentName && opponentName !== 'Guest' ? opponentName : null;
+  const myLabel = myUsername ? `${myUsername} (you)` : 'You';
+  const opponentLabel = opponentUsername || 'Opponent';
 
-  const renderClock = (color, who) => {
+  const renderClock = (color, label, username) => {
     const ms = liveMs(color);
     const active = clock?.turn === color && !frozen;
     return (
@@ -404,7 +409,18 @@ export default function Game({
         data-low={ms != null && ms <= LOW_TIME_MS}
       >
         <span className="clock-who">
-          {who}
+          {username ? (
+            <button
+              type="button"
+              className="player-name-btn"
+              onClick={() => setProfileName(username)}
+              title={`View ${username}'s profile`}
+            >
+              {label}
+            </button>
+          ) : (
+            label
+          )}
           <span className="clock-dot" data-color={color} />
         </span>
         <span className="clock-time">{formatClock(ms)}</span>
@@ -414,7 +430,14 @@ export default function Game({
 
   return (
     <div className="game">
-      {clock && renderClock(opponentColor, opponentLabel)}
+      {profileName && (
+        <Profile
+          username={profileName}
+          onClose={() => setProfileName(null)}
+        />
+      )}
+
+      {clock && renderClock(opponentColor, opponentLabel, opponentUsername)}
 
       <div className="board-wrap">
         <Chessboard
@@ -432,7 +455,7 @@ export default function Game({
         )}
       </div>
 
-      {clock && renderClock(myColor, myLabel)}
+      {clock && renderClock(myColor, myLabel, myUsername)}
 
       {!announcement && (
         <div className="game-actions">
