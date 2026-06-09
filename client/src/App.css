@@ -745,7 +745,8 @@
   gap: 8px;
 }
 
-/* One pill that groups name · rating · record, divided by thin separators. */
+/* One pill that groups name · rating · record, divided by thin separators.
+   It's a button: clicking it opens your profile. */
 .account-card {
   display: flex;
   align-items: center;
@@ -754,6 +755,18 @@
   border: 1px solid var(--accent-border);
   overflow: hidden;
   white-space: nowrap;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    filter 0.15s ease;
+}
+
+.account-card:hover {
+  border-color: var(--accent);
+  filter: brightness(1.08);
 }
 
 .account-card > span {
