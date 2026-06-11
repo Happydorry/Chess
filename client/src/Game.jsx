@@ -32,7 +32,7 @@ export default function Game({
     gameRef.current =
       initialFen && initialFen !== 'start' ? new Chess(initialFen) : new Chess();
   }
-  const { mergeUser } = useAuth();
+  const { user, mergeUser } = useAuth();
   const [fen, setFen] = useState(gameRef.current.fen());
   const [announcement, setAnnouncement] = useState(null); // transient banner text
   const [result, setResult] = useState(null); // final card { kind, title, detail }
@@ -60,6 +60,15 @@ export default function Game({
 
   // Clear any pending result timer if we unmount (e.g. Back to Lobby).
   useEffect(() => () => clearTimeout(endTimer.current), []);
+
+  // Logging out mid-game forfeits it (auth.logout emits leave_game). Detect the
+  // logged-in → logged-out transition and return to the lobby, so we don't sit
+  // on a board the server has already torn down.
+  const wasLoggedIn = useRef(Boolean(user));
+  useEffect(() => {
+    if (wasLoggedIn.current && !user) onLeave();
+    wasLoggedIn.current = Boolean(user);
+  }, [user, onLeave]);
 
   // Arrow keys (and Home/End) step through the replay when reviewing.
   useEffect(() => {

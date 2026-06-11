@@ -6,7 +6,7 @@ import {
   useState,
 } from 'react';
 import api from './api';
-import { setSocketAuthToken } from './socket';
+import { socket, setSocketAuthToken } from './socket';
 
 const AuthContext = createContext(null);
 const TOKEN_KEY = 'chess_token';
@@ -64,6 +64,10 @@ export function AuthProvider({ children }) {
   );
 
   const logout = useCallback(() => {
+    // Logging out abandons any game in progress: tell the server to forfeit it
+    // (the opponent is awarded the win) before the socket reconnects as a guest.
+    // No-op on the server if you're not currently in a game.
+    socket.emit('leave_game');
     applyToken(null);
     setUser(null);
   }, [applyToken]);
