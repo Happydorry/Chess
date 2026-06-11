@@ -436,6 +436,29 @@ function registerSocketHandlers(io) {
       }
     });
 
+    // LEAVE GAME — explicitly abandon an in-progress game (the in-game "Leave"
+    // button, or logging out mid-game). Unlike leave_room (which just frees a
+    // seat in a waiting/finished room), this counts as a forfeit: a live
+    // opponent is awarded the win. The room is resolved from the player id so no
+    // roomId is needed — handy for logout, which doesn't track it.
+    socket.on('leave_game', () => {
+      const roomId = roomIdOfPlayer(playerId);
+      if (!roomId) return;
+      const room = rooms[roomId];
+      const seat = seatOf(room, playerId);
+      if (!seat) return;
+
+      const opponentSeat = seat === 'white' ? 'black' : 'white';
+      // Live game with an opponent present → forfeit, opponent wins.
+      if (!room.over && room[opponentSeat]) {
+        socket.to(roomId).emit('opponent_resigned');
+        endGame(io, roomId, { winner: opponentSeat });
+      }
+
+      releaseSeat(roomId, playerId);
+      socket.leave(roomId);
+    });
+
     // FIND MATCH — join the matchmaking queue for the chosen time control, or
     // get paired right away if a compatible opponent is already waiting.
     socket.on('find_match', (payload) => {
