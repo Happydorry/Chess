@@ -64,12 +64,20 @@ export function AuthProvider({ children }) {
   );
 
   const logout = useCallback(() => {
-    // Logging out abandons any game in progress: tell the server to forfeit it
-    // (the opponent is awarded the win) before the socket reconnects as a guest.
-    // No-op on the server if you're not currently in a game.
-    socket.emit('leave_game');
-    applyToken(null);
-    setUser(null);
+    // Logging out abandons any game in progress as an immediate loss. We forfeit
+    // first and only switch to guest once the server acks it — otherwise the
+    // disconnect from swapping the token could race ahead of the forfeit and the
+    // game would linger instead of ending. Fall back after a moment if the
+    // server doesn't answer (e.g. offline), so logout never hangs.
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      applyToken(null);
+      setUser(null);
+    };
+    socket.emit('leave_game', finish);
+    setTimeout(finish, 1500);
   }, [applyToken]);
 
   // Patch the in-memory user (e.g. apply a fresh stats record after a game)
