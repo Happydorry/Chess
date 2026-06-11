@@ -7,6 +7,7 @@ const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { pl
 const cleanupTimers = {}; // playerId -> timeout
 const flagTimers = {}; // roomId -> timeout that fires when the running clock hits zero
 const GRACE_MS = Number(process.env.GRACE_MS) || 5_000; // reconnect window after a drop before it's a forfeit
+const ABORT_WINDOW_MS = Number(process.env.ABORT_WINDOW_MS) || 20_000; // abort only allowed this long after the game starts
 
 // Matchmaking queue: players waiting to be auto-paired with someone who picked
 // the same time control. Each entry is a seat-to-be plus the chosen control and
@@ -266,6 +267,7 @@ function startMatch(io, a, b) {
     black: seatFromEntry(blackEntry),
     fen: 'start',
     timeControl: tc,
+    startedAt: Date.now(), // for the abort-only-in-the-opening window
     clock: {
       white: tc.initialMs,
       black: tc.initialMs,
@@ -412,6 +414,7 @@ function registerSocketHandlers(io) {
         room.black = makeSeat(socket, playerId);
         // Brand-new opponent → the game starts now. Start white's clock using
         // the creator's chosen time control.
+        room.startedAt = Date.now(); // for the abort-only-in-the-opening window
         const tc = room.timeControl ?? sanitizeTimeControl();
         room.clock = {
           white: tc.initialMs,
@@ -550,8 +553,18 @@ function registerSocketHandlers(io) {
       socket.to(roomId).emit('opponent_resigned');
     });
 
-    // Aborts don't count — pass no outcome so nothing is recorded.
+    // ABORT — cancel the game with no result, but only in the opening: within
+    // ABORT_WINDOW_MS of the start. Enforced here so it can't be used to wriggle
+    // out of a losing position later. Aborts don't count, so no outcome.
     socket.on('abort', ({ roomId }) => {
+      const room = rooms[roomId];
+      if (!room || room.over) return;
+      if (!seatOf(room, playerId)) return; // not your game
+
+      const tooLate =
+        !room.startedAt || Date.now() - room.startedAt > ABORT_WINDOW_MS;
+      if (tooLate) return socket.emit('abort_rejected');
+
       endGame(io, roomId);
       socket.to(roomId).emit('opponent_aborted');
     });

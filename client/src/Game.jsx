@@ -7,6 +7,7 @@ import Profile from './Profile';
 
 const RESULT_ICON = { win: '🏆', loss: '🏳️', draw: '🤝', neutral: '⚠️' };
 const RESULT_DELAY_MS = 4000; // how long the "Checkmate!" banner shows first
+const ABORT_WINDOW_MS = 20_000; // abort is only offered this long after the start
 const LOW_TIME_MS = 20_000; // turn the clock red below this
 
 // mm:ss, but show tenths under 10s for the final scramble.
@@ -39,6 +40,9 @@ export default function Game({
   const [record, setRecord] = useState(null); // my updated {wins,losses,draws}
   const [profileName, setProfileName] = useState(null); // open profile modal
   const [oppGone, setOppGone] = useState(null); // { until } while opponent is disconnected
+  // Abort is only offered in the opening: for ~20s after the start, and not at
+  // all if we joined mid-game (a rejoin starts with a non-initial position).
+  const [canAbort, setCanAbort] = useState(!initialFen || initialFen === 'start');
   const endTimer = useRef(null);
 
   // Move log for in-game replay. Each entry is { fen, san }; the first entry is
@@ -103,6 +107,14 @@ export default function Game({
     return () => clearInterval(id);
   }, [oppGone]);
 
+  // Close the abort window 20s after the game opens (server enforces it too).
+  useEffect(() => {
+    if (!canAbort) return;
+    const id = setTimeout(() => setCanAbort(false), ABORT_WINDOW_MS);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Live remaining ms for a side: subtract elapsed if it's their turn (and the
   // clock isn't paused mid-disconnect).
   const liveMs = (side) => {
@@ -152,6 +164,13 @@ export default function Game({
       setResult({ kind: 'win', title: 'You win!', detail: 'Opponent resigned' });
     const handleAborted = () =>
       setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
+
+    // Server refused the abort (window has passed) — undo the optimistic card
+    // and hide the button.
+    const handleAbortRejected = () => {
+      setCanAbort(false);
+      setResult(null);
+    };
 
     // Opponent dropped — show a reconnect countdown and freeze the board notice
     // (their clock is already paused server-side).
@@ -204,6 +223,7 @@ export default function Game({
     socket.on('move_made', handleMoveMade);
     socket.on('opponent_resigned', handleResigned);
     socket.on('opponent_aborted', handleAborted);
+    socket.on('abort_rejected', handleAbortRejected);
     socket.on('opponent_left', handleOpponentLeft);
     socket.on('opponent_joined', handleOpponentBack);
     socket.on('clock_update', handleClockUpdate);
@@ -215,6 +235,7 @@ export default function Game({
       socket.off('move_made', handleMoveMade);
       socket.off('opponent_resigned', handleResigned);
       socket.off('opponent_aborted', handleAborted);
+      socket.off('abort_rejected', handleAbortRejected);
       socket.off('opponent_left', handleOpponentLeft);
       socket.off('opponent_joined', handleOpponentBack);
       socket.off('clock_update', handleClockUpdate);
@@ -499,9 +520,11 @@ export default function Game({
 
       {!announcement && (
         <div className="game-actions">
-          <button className="btn btn-ghost" onClick={handleAbort}>
-            Abort
-          </button>
+          {canAbort && (
+            <button className="btn btn-ghost" onClick={handleAbort}>
+              Abort
+            </button>
+          )}
           <button className="btn btn-danger" onClick={handleResign}>
             Resign
           </button>
