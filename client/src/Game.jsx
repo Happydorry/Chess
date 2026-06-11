@@ -292,14 +292,6 @@ export default function Game({
     setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
   }
 
-  // Leave an in-progress game: forfeit (opponent wins) and go straight back to
-  // the lobby — no result card. Confirmed, since it counts as a loss.
-  function handleLeaveGame() {
-    if (!window.confirm('Leave the game? This counts as a loss.')) return;
-    socket.emit('leave_game');
-    onLeave();
-  }
-
   // Review mode: replay the just-finished game move-by-move.
   if (result && reviewing) {
     const lastIndex = moveLog.length - 1;
@@ -506,19 +498,14 @@ export default function Game({
       {clock && renderClock(myColor, myLabel, myUsername)}
 
       {!announcement && (
-        <>
-          <div className="game-actions">
-            <button className="btn btn-ghost" onClick={handleAbort}>
-              Abort
-            </button>
-            <button className="btn btn-danger" onClick={handleResign}>
-              Resign
-            </button>
-          </div>
-          <button className="btn-leave" onClick={handleLeaveGame}>
-            Leave game
+        <div className="game-actions">
+          <button className="btn btn-ghost" onClick={handleAbort}>
+            Abort
           </button>
-        </>
+          <button className="btn btn-danger" onClick={handleResign}>
+            Resign
+          </button>
+        </div>
       )}
     </div>
   );
