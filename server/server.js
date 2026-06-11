@@ -6,7 +6,7 @@ const { isDBConnected } = require('./db');
 const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { playerId, socketId } | null)
 const cleanupTimers = {}; // playerId -> timeout
 const flagTimers = {}; // roomId -> timeout that fires when the running clock hits zero
-const GRACE_MS = Number(process.env.GRACE_MS) || 15_000; // reconnect window after a drop before it's a forfeit
+const GRACE_MS = Number(process.env.GRACE_MS) || 5_000; // reconnect window after a drop before it's a forfeit
 
 // Matchmaking queue: players waiting to be auto-paired with someone who picked
 // the same time control. Each entry is a seat-to-be plus the chosen control and
