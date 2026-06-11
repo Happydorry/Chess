@@ -6,7 +6,7 @@ const { isDBConnected } = require('./db');
 const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { playerId, socketId } | null)
 const cleanupTimers = {}; // playerId -> timeout
 const flagTimers = {}; // roomId -> timeout that fires when the running clock hits zero
-const GRACE_MS = Number(process.env.GRACE_MS) || 30_000; // keep a room alive this long after a player drops
+const GRACE_MS = Number(process.env.GRACE_MS) || 15_000; // reconnect window after a drop before it's a forfeit
 
 // Matchmaking queue: players waiting to be auto-paired with someone who picked
 // the same time control. Each entry is a seat-to-be plus the chosen control and
@@ -91,15 +91,38 @@ const namesOf = (room) => ({
 });
 
 // Live clock values: subtract the time elapsed on the running side's turn.
+// While paused (an opponent is disconnected) no time elapses, so both sides
+// freeze at their banked values.
 function clockSnapshot(room) {
   const c = room?.clock;
   if (!c) return null;
-  const elapsed = c.turn ? Date.now() - c.turnStartedAt : 0;
+  const elapsed = c.turn && !c.paused ? Date.now() - c.turnStartedAt : 0;
   return {
     white: c.turn === 'white' ? Math.max(0, c.white - elapsed) : c.white,
     black: c.turn === 'black' ? Math.max(0, c.black - elapsed) : c.black,
     turn: c.turn,
+    paused: Boolean(c.paused),
   };
+}
+
+// Pause the running clock (e.g. while an opponent is mid-disconnect): bank the
+// time spent on the current turn and stop the flag timer so no one flags while
+// a reconnect is still possible.
+function pauseClock(roomId) {
+  const c = rooms[roomId]?.clock;
+  if (!c?.turn || c.paused) return;
+  c[c.turn] = Math.max(0, c[c.turn] - (Date.now() - c.turnStartedAt));
+  c.paused = true;
+  clearTimeout(flagTimers[roomId]);
+}
+
+// Resume a paused clock: restart the current turn's timer and re-arm the flag.
+function resumeClock(io, roomId) {
+  const c = rooms[roomId]?.clock;
+  if (!c?.turn || !c.paused) return;
+  c.paused = false;
+  c.turnStartedAt = Date.now();
+  scheduleFlagFall(io, roomId);
 }
 
 // Arm a single timeout for the exact moment the running side flags. Re-armed on
@@ -108,7 +131,7 @@ function scheduleFlagFall(io, roomId) {
   clearTimeout(flagTimers[roomId]);
   const room = rooms[roomId];
   const c = room?.clock;
-  if (!c?.turn) return;
+  if (!c?.turn || c.paused) return; // never flag while paused
   const remaining = c[c.turn] - (Date.now() - c.turnStartedAt);
   flagTimers[roomId] = setTimeout(
     () => {
@@ -322,6 +345,9 @@ function registerSocketHandlers(io) {
         // once the second player arrives.
         const started = Boolean(room.white && room.black);
         if (started) {
+          // Back within the grace window — restart the clock that was frozen
+          // when we dropped.
+          resumeClock(io, existingRoomId);
           socket.emit('rejoined', {
             roomId: existingRoomId,
             color: seat,
@@ -329,10 +355,11 @@ function registerSocketHandlers(io) {
             clock: clockSnapshot(room),
             names: namesOf(room),
           });
-          // Tell the opponent we're back.
+          // Tell the opponent we're back, and unfreeze their clock too.
           socket.to(existingRoomId).emit('opponent_joined', {
             names: namesOf(room),
           });
+          socket.to(existingRoomId).emit('clock_update', clockSnapshot(room));
         } else {
           // Still waiting for an opponent — put the creator back on the lobby
           // waiting screen with their room code.
@@ -548,7 +575,7 @@ function registerSocketHandlers(io) {
       if (fen) room.fen = fen;
 
       const c = room.clock;
-      if (c?.turn) {
+      if (c?.turn && !c.paused) {
         const mover = c.turn; // the running side is the one who just moved
         c[mover] =
           Math.max(0, c[mover] - (Date.now() - c.turnStartedAt)) + c.increment;
@@ -579,7 +606,14 @@ function registerSocketHandlers(io) {
       const seat = seatOf(room, playerId);
       if (room[seat]?.socketId !== socket.id) return;
 
-      socket.to(roomId).emit('opponent_left'); // temporary notice
+      // Freeze the clock so the disconnected player's time doesn't bleed away
+      // during the reconnect window, and tell the opponent (with the countdown
+      // length) so their UI can show "reconnecting…" instead of a running clock.
+      if (!room.over) {
+        pauseClock(roomId);
+        io.to(roomId).emit('clock_update', clockSnapshot(room));
+      }
+      socket.to(roomId).emit('opponent_left', { graceMs: GRACE_MS });
 
       cleanupTimers[playerId] = setTimeout(() => {
         const room = rooms[roomId];
