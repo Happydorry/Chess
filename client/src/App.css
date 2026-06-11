@@ -560,6 +560,12 @@
   gap: 10px;
 }
 
+/* "Opponent disconnected — Ns to reconnect…" notice, sized to the board. */
+.disconnect-notice {
+  width: min(90vw, 480px);
+  box-sizing: border-box;
+}
+
 /* Muted text button under the action row: leave the game (forfeit) and return
    to the lobby. Understated so it doesn't compete with Resign. */
 .btn-leave {

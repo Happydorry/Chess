@@ -38,6 +38,7 @@ export default function Game({
   const [result, setResult] = useState(null); // final card { kind, title, detail }
   const [record, setRecord] = useState(null); // my updated {wins,losses,draws}
   const [profileName, setProfileName] = useState(null); // open profile modal
+  const [oppGone, setOppGone] = useState(null); // { until } while opponent is disconnected
   const endTimer = useRef(null);
 
   // Move log for in-game replay. Each entry is { fen, san }; the first entry is
@@ -87,17 +88,26 @@ export default function Game({
   }, [reviewing, moveLog.length]);
 
   // Re-render a few times a second while a clock is running so it counts down.
+  // Paused (opponent disconnected) stops the tick too.
   const [, forceTick] = useState(0);
   useEffect(() => {
-    if (!clock?.turn || frozen) return;
+    if (!clock?.turn || frozen || clock.paused) return;
     const id = setInterval(() => forceTick((t) => t + 1), 100);
     return () => clearInterval(id);
-  }, [clock?.turn, frozen]);
+  }, [clock?.turn, clock?.paused, frozen]);
 
-  // Live remaining ms for a side: subtract elapsed if it's their turn.
+  // Tick the "opponent reconnecting" countdown while it's showing.
+  useEffect(() => {
+    if (!oppGone) return;
+    const id = setInterval(() => forceTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, [oppGone]);
+
+  // Live remaining ms for a side: subtract elapsed if it's their turn (and the
+  // clock isn't paused mid-disconnect).
   const liveMs = (side) => {
     if (!clock) return null;
-    if (clock.turn === side && !frozen) {
+    if (clock.turn === side && !frozen && !clock.paused) {
       return Math.max(0, clock[side] - (Date.now() - clock.syncedAt));
     }
     return clock[side];
@@ -143,8 +153,17 @@ export default function Game({
     const handleAborted = () =>
       setResult({ kind: 'neutral', title: 'Game aborted', detail: null });
 
-    // Server's 30s grace expired without the opponent reconnecting — forfeit.
+    // Opponent dropped — show a reconnect countdown and freeze the board notice
+    // (their clock is already paused server-side).
+    const handleOpponentLeft = ({ graceMs } = {}) =>
+      setOppGone({ until: Date.now() + (graceMs || 0) });
+
+    // Opponent came back within the grace window — clear the notice.
+    const handleOpponentBack = () => setOppGone(null);
+
+    // Grace expired without the opponent reconnecting — forfeit.
     const handleForfeit = ({ winner }) => {
+      setOppGone(null);
       setResult(
         winner === myColor
           ? {
@@ -185,6 +204,8 @@ export default function Game({
     socket.on('move_made', handleMoveMade);
     socket.on('opponent_resigned', handleResigned);
     socket.on('opponent_aborted', handleAborted);
+    socket.on('opponent_left', handleOpponentLeft);
+    socket.on('opponent_joined', handleOpponentBack);
     socket.on('clock_update', handleClockUpdate);
     socket.on('time_up', handleTimeUp);
     socket.on('opponent_forfeit', handleForfeit);
@@ -194,6 +215,8 @@ export default function Game({
       socket.off('move_made', handleMoveMade);
       socket.off('opponent_resigned', handleResigned);
       socket.off('opponent_aborted', handleAborted);
+      socket.off('opponent_left', handleOpponentLeft);
+      socket.off('opponent_joined', handleOpponentBack);
       socket.off('clock_update', handleClockUpdate);
       socket.off('time_up', handleTimeUp);
       socket.off('opponent_forfeit', handleForfeit);
@@ -455,6 +478,14 @@ export default function Game({
       )}
 
       {clock && renderClock(opponentColor, opponentLabel, opponentUsername)}
+
+      {oppGone && !result && !announcement && (
+        <div className="banner banner-waiting disconnect-notice">
+          <span className="spinner" /> Opponent disconnected —{' '}
+          {Math.max(0, Math.ceil((oppGone.until - Date.now()) / 1000))}s to
+          reconnect…
+        </div>
+      )}
 
       <div className="board-wrap">
         <Chessboard
