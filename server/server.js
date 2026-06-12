@@ -1,6 +1,7 @@
 const { v4: uuidv4 } = require('uuid');
 const { verifyToken } = require('./token');
 const User = require('./models/User');
+const Game = require('./models/Game');
 const { isDBConnected } = require('./db');
 
 const rooms = {}; // roomId -> { white, black, fen, clock }  (white/black = { playerId, socketId } | null)
@@ -147,7 +148,7 @@ function scheduleFlagFall(io, roomId) {
         winner,
         clock: clockSnapshot(room),
       });
-      endGame(io, roomId, { winner });
+      endGame(io, roomId, { winner, reason: 'timeout' });
     },
     Math.max(0, remaining),
   );
@@ -225,6 +226,23 @@ async function recordResult(io, roomId, room, outcome) {
   const black = apply(blackUser, blackScore, blackBefore, whiteBefore);
 
   await Promise.all([whiteUser?.save(), blackUser?.save()].filter(Boolean));
+
+  // Persist the game for both players' match history. Guest seats store a name
+  // but no account id / ratings.
+  const side = (seat, user, before) => ({
+    userId: user?._id ?? null,
+    name: seat?.name ?? null,
+    ratingBefore: user ? before : null,
+    ratingAfter: user ? user.rating : null,
+  });
+  await Game.create({
+    white: side(room.white, whiteUser, whiteBefore),
+    black: side(room.black, blackUser, blackBefore),
+    winner: outcome.winner ?? null,
+    reason: outcome.reason ?? null,
+    rated,
+    timeControl: room.timeControl ?? undefined,
+  });
 
   // Each client reads the entry for its own colour; null means a guest seat.
   io.to(roomId).emit('stats_update', { white, black });
@@ -482,7 +500,7 @@ function registerSocketHandlers(io) {
         // Live game with an opponent present → forfeit, opponent wins.
         if (!room.over && room[opponentSeat]) {
           socket.to(roomId).emit('opponent_resigned');
-          endGame(io, roomId, { winner: opponentSeat });
+          endGame(io, roomId, { winner: opponentSeat, reason: 'resignation' });
         }
         releaseSeat(roomId, playerId);
         socket.leave(roomId);
@@ -551,7 +569,7 @@ function registerSocketHandlers(io) {
       const seat = room && seatOf(room, playerId);
       // The resigning side loses; their opponent is credited the win.
       const winner = seat ? (seat === 'white' ? 'black' : 'white') : null;
-      endGame(io, roomId, winner ? { winner } : undefined);
+      endGame(io, roomId, winner ? { winner, reason: 'resignation' } : undefined);
       socket.to(roomId).emit('opponent_resigned');
     });
 
@@ -579,7 +597,7 @@ function registerSocketHandlers(io) {
         result?.winner === 'white' || result?.winner === 'black'
           ? result.winner
           : null;
-      endGame(io, roomId, { winner });
+      endGame(io, roomId, { winner, reason: winner ? 'checkmate' : 'draw' });
     });
 
     // MAKE MOVE — broadcast to the other player; keep the authoritative FEN and
@@ -645,7 +663,10 @@ function registerSocketHandlers(io) {
                 winner: opponentSeat,
                 loser: seat,
               });
-              endGame(io, roomId, { winner: opponentSeat });
+              endGame(io, roomId, {
+                winner: opponentSeat,
+                reason: 'abandonment',
+              });
             }
           }
 
