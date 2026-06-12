@@ -17,6 +17,12 @@ export async function getProfile(username) {
   return res.data.profile;
 }
 
+// Fetch a player's recent games (match history), newest first.
+export async function getProfileGames(username) {
+  const res = await api.get(`/users/${encodeURIComponent(username)}/games`);
+  return res.data.games;
+}
+
 // Pull a human-readable message out of an axios error.
 export function errMsg(err) {
   return (
