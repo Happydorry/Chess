@@ -1027,7 +1027,16 @@
 
 /* ===== Replay ===== */
 .replay-card {
-  width: min(92vw, 540px);
+  /* Override .modal-card's 360px cap; box-sizing so padding is included and the
+     board/nav (width:100% below) fit inside instead of overflowing the card. */
+  width: min(92vw, 520px);
+  max-width: 520px;
+  box-sizing: border-box;
+}
+
+.replay-card .board-wrap,
+.replay-card .review-nav {
+  width: 100%;
 }
 
 .replay-head {
