@@ -1082,14 +1082,28 @@
 }
 
 .history-row {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
   border-radius: 10px;
+  border: 1px solid transparent;
   background: var(--social-bg);
+  color: inherit;
+  font: inherit;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.history-row:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
 }
 
 .history-badge {

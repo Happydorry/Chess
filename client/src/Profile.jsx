@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getProfile, getProfileGames, errMsg } from './api';
+import Replay from './Replay';
 
 // Time control as a compact "5+0" (minutes + increment seconds).
 const fmtTC = (tc) =>
@@ -16,6 +17,7 @@ export default function Profile({ username, onClose }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [games, setGames] = useState(null); // null = still loading
+  const [replayId, setReplayId] = useState(null); // open replay for this game
 
   useEffect(() => {
     let alive = true;
@@ -46,6 +48,7 @@ export default function Profile({ username, onClose }) {
     : null;
 
   return (
+    <>
     <div className="modal-overlay" onClick={onClose}>
       <div
         className="modal-card"
@@ -106,27 +109,35 @@ export default function Profile({ username, onClose }) {
               ) : (
                 <ul className="history-list">
                   {games.map((g) => (
-                    <li className="history-row" key={g.id}>
-                      <span className="history-badge" data-result={g.result}>
-                        {RESULT_LETTER[g.result]}
-                      </span>
-                      <span className="history-opp">vs {g.opponent}</span>
-                      <span className="history-tc">{fmtTC(g.timeControl)}</span>
-                      {g.ratingDelta != null && (
-                        <span
-                          className="history-delta"
-                          data-dir={g.ratingDelta >= 0 ? 'up' : 'down'}
-                        >
-                          {g.ratingDelta >= 0 ? '+' : ''}
-                          {g.ratingDelta}
+                    <li key={g.id}>
+                      <button
+                        className="history-row"
+                        onClick={() => setReplayId(g.id)}
+                        title="Watch replay"
+                      >
+                        <span className="history-badge" data-result={g.result}>
+                          {RESULT_LETTER[g.result]}
                         </span>
-                      )}
-                      <span className="history-date">
-                        {new Date(g.date).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                        })}
-                      </span>
+                        <span className="history-opp">vs {g.opponent}</span>
+                        <span className="history-tc">
+                          {fmtTC(g.timeControl)}
+                        </span>
+                        {g.ratingDelta != null && (
+                          <span
+                            className="history-delta"
+                            data-dir={g.ratingDelta >= 0 ? 'up' : 'down'}
+                          >
+                            {g.ratingDelta >= 0 ? '+' : ''}
+                            {g.ratingDelta}
+                          </span>
+                        )}
+                        <span className="history-date">
+                          {new Date(g.date).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      </button>
                     </li>
                   ))}
                 </ul>
@@ -136,5 +147,14 @@ export default function Profile({ username, onClose }) {
         )}
       </div>
     </div>
+
+    {replayId && (
+      <Replay
+        key={replayId}
+        gameId={replayId}
+        onClose={() => setReplayId(null)}
+      />
+    )}
+    </>
   );
 }
