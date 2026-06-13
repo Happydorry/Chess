@@ -27,6 +27,9 @@ const gameSchema = new mongoose.Schema(
       initialMs: { type: Number },
       incrementMs: { type: Number },
     },
+    // Full move list in SAN, from the starting position — lets the game be
+    // replayed move by move. Empty for games saved before this was tracked.
+    moves: { type: [String], default: [] },
   },
   { timestamps: true },
 );

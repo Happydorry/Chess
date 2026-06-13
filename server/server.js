@@ -242,6 +242,7 @@ async function recordResult(io, roomId, room, outcome) {
     reason: outcome.reason ?? null,
     rated,
     timeControl: room.timeControl ?? undefined,
+    moves: room.moves ?? [],
   });
 
   // Each client reads the entry for its own colour; null means a guest seat.
@@ -286,6 +287,7 @@ function startMatch(io, a, b) {
     fen: 'start',
     timeControl: tc,
     startedAt: Date.now(), // for the abort-only-in-the-opening window
+    moves: [], // SAN move list, accumulated for replay
     clock: {
       white: tc.initialMs,
       black: tc.initialMs,
@@ -433,6 +435,7 @@ function registerSocketHandlers(io) {
         // Brand-new opponent → the game starts now. Start white's clock using
         // the creator's chosen time control.
         room.startedAt = Date.now(); // for the abort-only-in-the-opening window
+        room.moves = []; // SAN move list, accumulated for replay
         const tc = room.timeControl ?? sanitizeTimeControl();
         room.clock = {
           white: tc.initialMs,
@@ -606,6 +609,7 @@ function registerSocketHandlers(io) {
       const room = rooms[roomId];
       if (!room) return;
       if (fen) room.fen = fen;
+      if (move?.san) (room.moves ||= []).push(move.san); // for replay
 
       const c = room.clock;
       if (c?.turn && !c.paused) {
