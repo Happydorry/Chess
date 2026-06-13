@@ -8,6 +8,7 @@ const registerSocketHandlers = require('./server');
 const { connectDB } = require('./db');
 const { router: authRouter } = require('./auth');
 const { router: usersRouter } = require('./users');
+const { router: gamesRouter } = require('./games');
 
 const app = express();
 app.use(cors());
@@ -30,6 +31,9 @@ app.use('/api/auth', authRouter);
 
 // Public player profiles (viewable by anyone, including guests).
 app.use('/api/users', usersRouter);
+
+// Public finished games (for replay).
+app.use('/api/games', gamesRouter);
 
 registerSocketHandlers(io);
 
