@@ -1025,6 +1025,31 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ===== Replay ===== */
+.replay-card {
+  width: min(92vw, 540px);
+}
+
+.replay-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.replay-players {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-h);
+  text-align: center;
+}
+
+.replay-result {
+  font-size: 13px;
+  color: var(--text);
+}
+
 /* ===== Match history ===== */
 .history {
   width: 100%;

@@ -23,6 +23,12 @@ export async function getProfileGames(username) {
   return res.data.games;
 }
 
+// Fetch one finished game (with its move list) for replay.
+export async function getGame(id) {
+  const res = await api.get(`/games/${encodeURIComponent(id)}`);
+  return res.data.game;
+}
+
 // Pull a human-readable message out of an axios error.
 export function errMsg(err) {
   return (
